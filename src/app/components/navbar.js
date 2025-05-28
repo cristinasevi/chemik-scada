@@ -1,0 +1,120 @@
+'use client';
+
+import { useState } from 'react';
+import { Menu, Database, Settings, Users, Activity, AlertTriangle, Cloud, Zap, Gauge, Download, FileText } from 'lucide-react';
+
+const Navbar = () => {
+  const [showMainMenu, setShowMainMenu] = useState(false);
+
+  // Lista principal de navegación
+  const mainItems = [
+    { icon: Activity, label: "Datos activos", active: true, path: "/datos-activos" },
+    { icon: Database, label: "Datos acumulados", path: "/datos-acumulados" },
+    { icon: Cloud, label: "Estaciones meteorológicas", path: "/estaciones-meteorologicas" },
+    { icon: Zap, label: "Inversores", path: "/inversores" },
+    { icon: Gauge, label: "Vatímetros", path: "/vatimetros" },
+    { icon: Download, label: "Exportación", path: "/exportacion" },
+    { icon: AlertTriangle, label: "Alarmas", path: "/alarmas" },
+    { icon: FileText, label: "Informes comerciales", path: "/informes-comerciales" },
+    { icon: FileText, label: "Informes dispositivos", path: "/informes-dispositivos" }
+  ];
+
+  // Items del footer
+  const footerItems = [
+    { icon: Settings, label: "Configuración", path: "/config" },
+    { icon: Users, label: "Usuarios", path: "/users" }
+  ];
+
+  const handleItemClick = (item) => {
+    console.log(`Navegando a: ${item.path}`);
+    // Aquí puedes agregar tu lógica de navegación
+    // Por ejemplo: router.push(item.path)
+    setShowMainMenu(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMainMenu(!showMainMenu)}
+        className="p-2 rounded-md hover-bg transition-colors cursor-pointer"
+        title="Main menu"
+      >
+        <Menu size={20} />
+      </button>
+
+      {/* Dropdown del menú principal */}
+      {showMainMenu && (
+        <>
+          <div className="absolute left-0 mt-2 w-64 bg-panel rounded-lg shadow-xl border-custom z-50">
+            {/* Items principales */}
+            <div className="p-2 space-y-1">
+              {mainItems.map((item) => (
+                <NavbarItem
+                  key={item.label}
+                  icon={item.icon}
+                  label={item.label}
+                  active={item.active}
+                  onClick={() => handleItemClick(item)}
+                />
+              ))}
+            </div>
+
+            <div className="border-t border-custom"></div>
+
+            {/* Items del footer */}
+            <div className="p-2 space-y-1">
+              {footerItems.map((item) => (
+                <NavbarItem
+                  key={item.label}
+                  icon={item.icon}
+                  label={item.label}
+                  active={item.active}
+                  onClick={() => handleItemClick(item)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Overlay para cerrar el menú */}
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={() => setShowMainMenu(false)}
+          />
+        </>
+      )}
+    </div>
+  );
+};
+
+// Componente para items individuales del navbar
+const NavbarItem = ({ icon: Icon, label, active = false, onClick, badge = null }) => (
+  <button
+    onClick={onClick}
+    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all duration-200 group cursor-pointer ${
+      active 
+        ? 'bg-blue-500 text-white shadow-md' 
+        : 'text-primary hover-bg hover:translate-x-1'
+    }`}
+  >
+    <div className="flex items-center space-x-3">
+      <Icon 
+        size={16} 
+        className={`${active ? 'text-white' : 'text-secondary group-hover:text-primary'} transition-colors`} 
+      />
+      <span className="truncate">{label}</span>
+    </div>
+    
+    {/* Badge opcional para notificaciones o contadores */}
+    {badge && (
+      <span className={`text-xs px-2 py-1 rounded-full ${
+        active 
+          ? 'bg-white/20 text-white' 
+          : 'bg-blue-500 text-white'
+      }`}>
+        {badge}
+      </span>
+    )}
+  </button>
+);
+
+export default Navbar;
