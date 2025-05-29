@@ -95,7 +95,7 @@ const Map = () => {
       <div
         ref={mapRef}
         className="w-full h-96 bg-gray-100 rounded-lg"
-        style={{ minHeight: '500px' }}
+        style={{ minHeight: '500px', zIndex: 1 }}
       />
     </div>
   );

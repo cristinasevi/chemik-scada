@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Moon, Sun, Search, Bell, User, BarChart3, Settings, LogOut } from 'lucide-react';
+import { Moon, Sun, Search, Bell, User, LogOut } from 'lucide-react';
 import Navbar from './navbar';
 
 const Header = () => {
@@ -37,12 +37,8 @@ const Header = () => {
   return (
     <header className="bg-header sticky top-0 z-50">
       <div className="grid grid-cols-3 items-center px-4 py-1">
-        {/* Logo y navegación izquierda */}
         <div className="flex items-center space-x-4">
-          {/* Componente Navbar */}
           <Navbar />
-
-          {/* Logo */}
           <div className="flex items-center space-x-2">
             <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center">
               <img 
@@ -54,21 +50,13 @@ const Header = () => {
           </div>
         </div>
 
-        {/* Título central - perfectamente centrado */}
         <div className="flex justify-center">
           <h1 className="text-2xl font-semibold text-primary hidden sm:block">
             Chemik Scada
           </h1>
         </div>
 
-        {/* Acciones derecha */}
         <div className="flex items-center justify-end space-x-2">
-          {/* Búsqueda móvil */}
-          <button className="sm:hidden p-2 rounded-md hover-bg transition-colors">
-            <Search size={18} />
-          </button>
-
-          {/* Usuario */}
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -80,7 +68,6 @@ const Header = () => {
               <span className="hidden sm:block text-sm font-medium text-primary">Admin</span>
             </button>
 
-            {/* Dropdown usuario */}
             {showUserMenu && (
               <div className="absolute right-0 mt-2 w-48 bg-panel rounded-lg shadow-lg border-custom z-50">
                 <div className="p-4 border-b border-custom">
@@ -90,7 +77,6 @@ const Header = () => {
                 <div className="p-2">
                   <UserMenuItem label="Perfil" icon={User} />
                   <UserMenuItem label="Notificaciones" icon={Bell} />
-                  <UserMenuItem label="Preferencias" icon={Settings} />
                   <UserMenuItem 
                     label={isDark ? "Modo claro" : "Modo oscuro"}
                     icon={isDark ? Sun : Moon}

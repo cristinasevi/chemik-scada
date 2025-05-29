@@ -42,11 +42,9 @@ const Navbar = () => {
         <Menu size={20} />
       </button>
 
-      {/* Dropdown del menú principal */}
       {showMainMenu && (
         <>
           <div className="absolute left-0 mt-2 w-64 bg-panel rounded-lg shadow-xl border-custom z-50">
-            {/* Items principales */}
             <div className="p-2 space-y-1">
               {mainItems.map((item) => (
                 <NavbarItem
@@ -61,7 +59,6 @@ const Navbar = () => {
 
             <div className="border-t border-custom"></div>
 
-            {/* Items del footer */}
             <div className="p-2 space-y-1">
               {footerItems.map((item) => (
                 <NavbarItem
@@ -103,17 +100,6 @@ const NavbarItem = ({ icon: Icon, label, active = false, onClick, badge = null }
       />
       <span className="truncate">{label}</span>
     </div>
-    
-    {/* Badge opcional para notificaciones o contadores */}
-    {badge && (
-      <span className={`text-xs px-2 py-1 rounded-full ${
-        active 
-          ? 'bg-white/20 text-white' 
-          : 'bg-blue-500 text-white'
-      }`}>
-        {badge}
-      </span>
-    )}
   </button>
 );
 
