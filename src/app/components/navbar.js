@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Menu, Database, Settings, Users, Activity, AlertTriangle, Cloud, Zap, Gauge, Download, FileText } from 'lucide-react';
+import { Menu, Home, Database, Settings, Users, Activity, AlertTriangle, Cloud, Zap, Gauge, Download, FileText } from 'lucide-react';
 
 const Navbar = () => {
   const [showMainMenu, setShowMainMenu] = useState(false);
 
   // Lista principal de navegación
   const mainItems = [
-    { icon: Activity, label: "Datos activos", active: true, path: "/datos-activos" },
+    { icon: Home, label: "Inicio", active: true, path: "/" },
+    { icon: Activity, label: "Datos activos", path: "/datos-activos" },
     { icon: Database, label: "Datos acumulados", path: "/datos-acumulados" },
     { icon: Cloud, label: "Estaciones meteorológicas", path: "/estaciones-meteorologicas" },
     { icon: Zap, label: "Inversores", path: "/inversores" },
@@ -37,7 +38,6 @@ const Navbar = () => {
       <button
         onClick={() => setShowMainMenu(!showMainMenu)}
         className="p-2 rounded-md hover-bg transition-colors cursor-pointer"
-        title="Main menu"
       >
         <Menu size={20} />
       </button>
@@ -93,7 +93,7 @@ const NavbarItem = ({ icon: Icon, label, active = false, onClick, badge = null }
     className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all duration-200 group cursor-pointer ${
       active 
         ? 'bg-blue-500 text-white shadow-md' 
-        : 'text-primary hover-bg hover:translate-x-1'
+        : 'text-primary hover-menu'
     }`}
   >
     <div className="flex items-center space-x-3">

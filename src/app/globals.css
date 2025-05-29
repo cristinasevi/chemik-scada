@@ -29,11 +29,11 @@
 @media (prefers-color-scheme: dark) {
   :root {
     /* Colores base modo oscuro */
-    --background: #0d1117;
+    --background: #181b1f;
     --foreground: #e6edf3;
     
     /* Header y paneles */
-    --header-bg: #161b22;
+    --header-bg: #181b1f;
     --header-border: #21262d;
     --panel-bg: #21262d;
     --panel-border: #30363d;
@@ -56,9 +56,9 @@
 
 /* Clases para forzar temas */
 .dark {
-  --background: #0d1117;
+  --background: #181b1f;
   --foreground: #e6edf3;
-  --header-bg: #161b22;
+  --header-bg: #181b1f;
   --header-border: #21262d;
   --panel-bg: #21262d;
   --panel-border: #30363d;
@@ -122,4 +122,12 @@ body {
 
 .hover-bg:hover {
   background-color: var(--hover-bg);
+}
+
+.hover-menu:hover {
+  background-color: #f3f4f6;
+}
+
+.dark .hover-menu:hover {
+  background-color: #374151;
 }
