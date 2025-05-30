@@ -11,6 +11,7 @@ const Map = () => {
   const [error, setError] = useState(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
+  const labelsRef = useRef([]);
 
   const loadStationsData = async () => {
     try {
@@ -35,14 +36,22 @@ const Map = () => {
   const updateMapMarkers = () => {
     if (!mapInstanceRef.current || !window.L) return;
 
+    // Limpiar marcadores existentes
     markersRef.current.forEach(marker => {
       mapInstanceRef.current.removeLayer(marker);
     });
     markersRef.current = [];
 
+    // Limpiar labels existentes
+    labelsRef.current.forEach(label => {
+      mapInstanceRef.current.removeLayer(label);
+    });
+    labelsRef.current = [];
+
     stationsData.forEach((station) => {
       if (station.coordinates[0] === 0 && station.coordinates[1] === 0) return;
 
+      // Crear el marcador principal
       const icon = createCustomIcon(station.status);
       const marker = window.L.marker(station.coordinates, { icon })
         .addTo(mapInstanceRef.current);
@@ -55,6 +64,15 @@ const Map = () => {
         className: 'custom-popup'
       });
       markersRef.current.push(marker);
+
+      // Crear el cuadradito de irradiación
+      const irradianceLabel = createIrradianceLabel(station);
+      const labelMarker = window.L.marker(station.coordinates, { 
+        icon: irradianceLabel,
+        interactive: false // No intercepta clicks
+      }).addTo(mapInstanceRef.current);
+      
+      labelsRef.current.push(labelMarker);
     });
   };
 
@@ -77,11 +95,53 @@ const Map = () => {
           border: 3px solid white;
           border-radius: 50%;
           box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          position: relative;
+          z-index: 1000;
         "></div>
       `,
       className: 'custom-marker',
       iconSize: [26, 26],
       iconAnchor: [13, 13]
+    });
+  };
+
+  const createIrradianceLabel = (station) => {
+    const irradiance = station.data.Irrad;
+    const irradianceText = irradiance !== null && irradiance !== undefined 
+      ? `${Math.round(irradiance)}`
+      : 'N/A';
+
+    return window.L.divIcon({
+      html: `
+        <div style="
+          background-color: white;
+          color: #374151;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: bold;
+          font-family: Inter, sans-serif;
+          text-align: center;
+          min-width: 35px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          border: 1px solid rgba(0,0,0,0.1);
+          position: relative;
+          z-index: 999;
+        ">
+          ${irradianceText}
+          <div style="
+            font-size: 8px;
+            font-weight: normal;
+            opacity: 0.7;
+            margin-top: -1px;
+          ">
+            W/m²
+          </div>
+        </div>
+      `,
+      className: 'irradiance-label',
+      iconSize: [40, 25],
+      iconAnchor: [20, -15]
     });
   };
 
@@ -255,34 +315,6 @@ const Map = () => {
 
   return (
     <div className="w-full h-full space-y-4">
-      <div className="bg-panel rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-primary">Plantas Fotovoltaicas</h2>
-          <div className="flex items-center space-x-4">
-            {loading && (
-              <div className="flex items-center space-x-2 text-secondary">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                <span>Actualizando...</span>
-              </div>
-            )}
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-1">
-                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span className="text-secondary">Online: {stationsData.filter(s => s.status === 'online').length}</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                <span className="text-secondary">Alertas: {stationsData.filter(s => s.status === 'alert').length}</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                <span className="text-secondary">Offline: {stationsData.filter(s => s.status === 'offline').length}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="bg-panel rounded-lg overflow-hidden">
         <div
           ref={mapRef}
