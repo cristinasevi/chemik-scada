@@ -67,11 +67,11 @@ const Map = () => {
 
       // Crear el cuadradito de irradiación
       const irradianceLabel = createIrradianceLabel(station);
-      const labelMarker = window.L.marker(station.coordinates, { 
+      const labelMarker = window.L.marker(station.coordinates, {
         icon: irradianceLabel,
         interactive: false // No intercepta clicks
       }).addTo(mapInstanceRef.current);
-      
+
       labelsRef.current.push(labelMarker);
     });
   };
@@ -106,41 +106,40 @@ const Map = () => {
   };
 
   const createIrradianceLabel = (station) => {
-    const irradiance = station.data.Irrad;
-    const irradianceText = irradiance !== null && irradiance !== undefined 
-      ? `${Math.round(irradiance)}`
+    const { Irrad, P } = station.data;
+
+    const irradianceText = Irrad !== null && Irrad !== undefined
+      ? `${Math.round(Irrad)} W/m²`
+      : 'N/A';
+
+    const powerText = P !== null && P !== undefined
+      ? (Math.abs(P) >= 1000 ? `${(P / 1000).toFixed(2)} MW` : `${P.toFixed(1)} kW`)
       : 'N/A';
 
     return window.L.divIcon({
       html: `
-        <div style="
-          background-color: white;
-          color: #374151;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 10px;
-          font-weight: bold;
-          font-family: Inter, sans-serif;
-          text-align: center;
-          min-width: 35px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-          border: 1px solid rgba(0,0,0,0.1);
-          position: relative;
-          z-index: 999;
-        ">
-          ${irradianceText}
-          <div style="
-            font-size: 8px;
-            font-weight: normal;
-            opacity: 0.7;
-            margin-top: -1px;
-          ">
-            W/m²
-          </div>
-        </div>
-      `,
+      <div style="
+        background-color: white;
+        color: #374151;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-family: Inter, sans-serif;
+        text-align: left;
+        min-width: 70px;
+        white-space: nowrap;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        border: 1px solid rgba(0,0,0,0.1);
+        position: relative;
+        z-index: 999;
+        line-height: 1.3;
+      ">
+        <div><strong>I:</strong> ${irradianceText}</div>
+        <div><strong>P:</strong> ${powerText}</div>
+      </div>
+    `,
       className: 'irradiance-label',
-      iconSize: [40, 25],
+      iconSize: [75, 32],
       iconAnchor: [20, -15]
     });
   };
@@ -151,7 +150,7 @@ const Map = () => {
     // Función para formatear valores según el tipo
     const formatValue = (value, type) => {
       if (value === null || value === undefined) return 'N/A';
-      
+
       switch (type) {
         case 'percentage':
           return `${Math.round(value)} %`;
@@ -230,11 +229,11 @@ const Map = () => {
 
         const script = document.createElement('script');
         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        
+
         script.onload = () => {
           setTimeout(initMap, 100);
         };
-        
+
         document.head.appendChild(script);
 
       } catch (error) {
@@ -299,7 +298,7 @@ const Map = () => {
         <div className="text-center text-red-500">
           <AlertTriangle size={48} className="mx-auto mb-2" />
           <p>Error: {error}</p>
-          <button 
+          <button
             onClick={() => {
               setError(null);
               loadStationsData();

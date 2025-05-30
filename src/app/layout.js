@@ -3,8 +3,9 @@ import "./globals.css";
 import Header from './components/header';
 
 const inter = Inter({
-  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
 });
 
 export const metadata = {
@@ -14,10 +15,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body
-        className={`${inter.variable} antialiased`}
-      >
+    <html lang="es" className={inter.variable}>
+      <body className={`font-inter antialiased`}>
         <Header />
         {children}
       </body>
