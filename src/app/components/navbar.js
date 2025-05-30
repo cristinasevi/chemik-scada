@@ -1,14 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { Menu, Home, Database, Settings, Users, Activity, AlertTriangle, Cloud, Zap, Gauge, Download, FileText } from 'lucide-react';
 
 const Navbar = () => {
   const [showMainMenu, setShowMainMenu] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   // Lista principal de navegación
   const mainItems = [
-    { icon: Home, label: "Inicio", active: true, path: "/" },
+    { icon: Home, label: "Inicio", path: "/" },
     { icon: Activity, label: "Datos activos", path: "/datos-activos" },
     { icon: Database, label: "Datos acumulados", path: "/datos-acumulados" },
     { icon: Cloud, label: "Estaciones meteorológicas", path: "/estaciones-meteorologicas" },
@@ -23,14 +26,16 @@ const Navbar = () => {
   // Items del footer
   const footerItems = [
     { icon: Settings, label: "Configuración", path: "/config" },
-    { icon: Users, label: "Usuarios", path: "/users" }
+    { icon: Users, label: "Usuarios", path: "/usuarios" }
   ];
 
   const handleItemClick = (item) => {
-    console.log(`Navegando a: ${item.path}`);
-    // Aquí puedes agregar tu lógica de navegación
-    // Por ejemplo: router.push(item.path)
+    router.push(item.path);
     setShowMainMenu(false);
+  };
+
+  const isActive = (path) => {
+    return pathname === path;
   };
 
   return (
@@ -51,7 +56,7 @@ const Navbar = () => {
                   key={item.label}
                   icon={item.icon}
                   label={item.label}
-                  active={item.active}
+                  active={isActive(item.path)}
                   onClick={() => handleItemClick(item)}
                 />
               ))}
@@ -65,7 +70,7 @@ const Navbar = () => {
                   key={item.label}
                   icon={item.icon}
                   label={item.label}
-                  active={item.active}
+                  active={isActive(item.path)}
                   onClick={() => handleItemClick(item)}
                 />
               ))}
@@ -100,6 +105,11 @@ const NavbarItem = ({ icon: Icon, label, active = false, onClick, badge = null }
       />
       <span className="truncate">{label}</span>
     </div>
+    {badge && (
+      <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] flex items-center justify-center">
+        {badge}
+      </span>
+    )}
   </button>
 );
 

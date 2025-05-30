@@ -16,6 +16,8 @@
   /* Botones */
   --button-primary: #1890ff;
   --button-primary-hover: #40a9ff;
+  --bg-badge: #f3f4f6;
+  --fg-badge: #fff;
   
   /* Texto */
   --text-primary: #24292f;
@@ -44,6 +46,8 @@
     /* Botones */
     --button-primary: #1890ff;
     --button-primary-hover: #40a9ff;
+    --bg-badge: #364153;
+    --fg-badge: #d1d5dc;
     
     /* Texto */
     --text-primary: #e6edf3;
@@ -63,6 +67,8 @@
   --header-bg: #181b1f;
   --header-bg-table: #161b22;
   --header-border: #21262d;
+  --bg-badge: #364153;
+  --fg-badge: #d1d5dc;
   --panel-bg: #21262d;
   --panel-border: #30363d;
   --panel-shadow: rgba(0, 0, 0, 0.3);
@@ -79,6 +85,8 @@
   --header-bg: #ffffff;
   --header-bg-table: #f3f4f6;
   --header-border: #e6e6e6;
+  --bg-badge: #f3f4f6;
+  --fg-badge: #656c76;
   --panel-bg: #ffffff;
   --panel-border: #e6e6e6;
   --panel-shadow: rgba(0, 0, 0, 0.05);
@@ -113,6 +121,11 @@ body {
   color: var(--text-primary);
 }
 
+.bg-badge {
+  background-color: var(--bg-badge);
+  color: var(--fg-badge);
+}
+
 .text-primary {
   color: var(--text-primary);
 }
@@ -139,4 +152,60 @@ body {
 
 .dark .hover-menu:hover {
   background-color: #374151;
+}
+
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 20px 20px;
+  padding-right: 40px;
+}
+
+.dark select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23d1d5db' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+}
+
+select option {
+  background-color: white;
+  color: #374151;
+  padding: 8px 12px;
+}
+
+.dark select option {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+.dark select option:checked {
+  background-color: #4b5563;
+  color: white;
+}
+
+.btn-edit-hover {
+  @apply p-2 text-blue-500 rounded-lg transition-colors cursor-pointer;
+}
+
+.btn-edit-hover:hover {
+  background-color: #eff6ff;
+}
+
+.dark .btn-edit-hover:hover {
+  background-color: rgba(30, 58, 138, 0.2);
+}
+
+.btn-delete-hover {
+  @apply p-2 text-red-500 rounded-lg transition-colors cursor-pointer;
+}
+
+.btn-delete-hover:hover {
+  background-color: #fef2f2;
+}
+
+.dark .btn-delete-hover:hover {
+  background-color: rgba(127, 29, 29, 0.2);
 }
