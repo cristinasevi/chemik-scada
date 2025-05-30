@@ -47,7 +47,7 @@ export async function GET(request) {
       availablePlants = ['LAMAJA', 'RETAMAR'];
     }
 
-    // 2. POTENCIA TOTAL - Replica exacta de tu query de Grafana
+    // DEFINIR TODAS LAS QUERIES
     const totalPowerQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
@@ -65,49 +65,27 @@ export async function GET(request) {
         |> keep(columns: ["_time","suma"])
     `;
 
-    // 3. ENERGÍA TOTAL - Replica exacta de tu query de Grafana
     const totalEnergyQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
-        |> filter(fn: (r) => ${availablePlants.map(plant => `r["PVO_Plant"] == "${plant}"`).join(' or ')})
+        |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
         |> filter(fn: (r) => r["type"] == "calculado")
         |> filter(fn: (r) => r["_field"] == "EPV")
-        |> last()
         |> keep(columns: ["_time","PVO_Plant", "_value"])
         |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+        |> cumulativeSum(columns: ["LAMAJA","RETAMAR"])
         |> map(fn: (r) => ({
             r with
-            suma: ${availablePlants.map(plant => `r.${plant}`).join(' + ')}
+            suma: r.LAMAJA + r.RETAMAR
         }))
         |> keep(columns: ["_time","suma"])
+        |> last(column: "suma")
     `;
 
-    // 4. POTENCIA INDIVIDUAL - Para cada planta
-    const createPowerQueryForPlant = (plantName) => `
-      from(bucket: "PV")
-        |> range(start: -24h)
-        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
-        |> filter(fn: (r) => r["PVO_id"] == "66KV" or r["PVO_id"] == "CONTADOR01")
-        |> filter(fn: (r) => r["_field"] == "P")
-        |> aggregateWindow(every: 20m, fn: mean, createEmpty: false)
-        |> last()
-    `;
-
-    // 5. ENERGÍA INDIVIDUAL - Para cada planta
-    const createEnergyQueryForPlant = (plantName) => `
-      from(bucket: "PV")
-        |> range(start: -24h)
-        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
-        |> filter(fn: (r) => r["type"] == "calculado")
-        |> filter(fn: (r) => r["_field"] == "EPV")
-        |> last()
-    `;
-
-    // 6. IRRADIANCIA TOTAL - Replica exacta de tu query de Grafana
     const totalIrradianceQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
-        |> filter(fn: (r) => ${availablePlants.map(plant => `r["PVO_Plant"] == "${plant}"`).join(' or ')})
+        |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR" or r["PVO_Plant"] == "LAMAJA")
         |> filter(fn: (r) => r["PVO_type"] == "METEO")
         |> filter(fn: (r) => r["_field"] == "RadPOA01")
         |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)
@@ -121,26 +99,30 @@ export async function GET(request) {
         |> keep(columns: ["_time","suma"])
     `;
 
-    // 7. IRRADIANCIA INDIVIDUAL - Para cada planta
-    const createIrradianceQueryForPlant = (plantName) => `
+    const totalIrradiationQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
-        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
-        |> filter(fn: (r) => r["PVO_type"] == "METEO")
-        |> filter(fn: (r) => r["_field"] == "RadPOA01")
-        |> aggregateWindow(every: 20m, fn: mean, createEmpty: false)
-        |> last()
+        |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "H_PoA")
+        |> keep(columns: ["_time","PVO_Plant", "_value"])
+        |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+        |> cumulativeSum(columns: ["LAMAJA","RETAMAR"])
+        |> map(fn: (r) => ({
+            r with
+            suma: r.LAMAJA + r.RETAMAR
+        }))
+        |> keep(columns: ["_time","suma"])
+        |> last(column: "suma")
     `;
 
-    // 8. RENTABILIDAD TOTAL - Replica exacta de tu query de Grafana
     const totalProfitabilityQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
-        |> filter(fn: (r) => ${availablePlants.map(plant => `r["PVO_Plant"] == "${plant}"`).join(' or ')})
+        |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
         |> filter(fn: (r) => r["type"] == "calculado")
         |> filter(fn: (r) => r["_field"] == "EPV")
         |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
-        |> last()
         |> keep(columns: ["_time","PVO_Plant", "_value"])
         |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
         |> map(fn: (r) => ({
@@ -149,22 +131,79 @@ export async function GET(request) {
         }))
         |> keep(columns: ["_time","suma"])
         |> filter(fn: (r) => r.suma >= 0.0)
+        |> last(column: "suma")
     `;
 
-    // 9. RENTABILIDAD INDIVIDUAL - Para cada planta
-    const createProfitabilityQueryForPlant = (plantName) => `
+    const totalElecDispoQuery = `
       from(bucket: "PV")
         |> range(start: -24h)
-        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
-        |> filter(fn: (r) => r["type"] == "calculado")
-        |> filter(fn: (r) => r["_field"] == "EPV")
-        |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
+        |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR" or r["PVO_Plant"] == "LAMAJA")
+        |> filter(fn: (r) => r["PVO_id"] == "ESTADO" or r["PVO_id"] == "66KV")
+        |> filter(fn: (r) => r["_field"] == "DispoElec" or r["_field"] == "AvEle")
+        |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+        |> keep(columns: ["_time", "PVO_Plant", "_value"])
         |> last()
-        |> map(fn: (r) => ({ r with _value: r._value / 1000.0 }))
-        |> filter(fn: (r) => r._value >= 0.0)
+        |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+        |> map(fn: (r) => ({
+            r with
+            AvGen: (r.LAMAJA * 4.4 + r.RETAMAR * 3.33) / 7.73
+        }))
+        |> keep(columns: ["_time","AvGen"])
     `;
 
-    // 10. Query para datos geográficos
+    const totalMecDispoQuery = `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR")
+        |> filter(fn: (r) => r["PVO_id"] == "ESTADO")
+        |> filter(fn: (r) => r["_field"] == "DispoMec")
+        |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+        |> last()
+    `;
+
+    // 9. PR (PERFORMANCE RATIO) TOTAL
+    const totalPRQuery = `
+      data1 = from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "H_PoA")
+        |> keep(columns: ["_time", "PVO_Plant", "_value"])
+        |> pivot(rowKey: ["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+        |> cumulativeSum(columns: ["LAMAJA", "RETAMAR"])
+        |> map(fn: (r) => ({
+            r with
+            H_POA: (r.LAMAJA*4400.0 + r.RETAMAR*3300.0)/7700.0
+        }))
+        |> keep(columns: ["_time", "H_POA"])
+
+      data2 = from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "EPV")
+        |> keep(columns: ["_time", "PVO_Plant", "_value"])
+        |> pivot(rowKey: ["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+        |> cumulativeSum(columns: ["LAMAJA", "RETAMAR"])
+        |> map(fn: (r) => ({
+            r with
+            E_PV: r.LAMAJA + r.RETAMAR
+        }))
+        |> keep(columns: ["_time", "E_PV"])
+
+      join(
+        tables: {key1: data1, key2: data2},
+        on: ["_time"],
+        method: "inner"
+      )
+      |> map(fn: (r) => ({
+          r with
+          PR: r.E_PV/(7700.0*r.H_POA)*100000.0
+      }))
+      |> keep(columns: ["_time", "PR"])
+      |> last()
+    `;
+
     const geoDataQuery = `
       from(bucket: "GeoMap")
         |> range(start: -24h)
@@ -174,24 +213,168 @@ export async function GET(request) {
         |> keep(columns: ["AvEle","AvMec","Irrad","latitude","longitude","Plant"])
     `;
 
+    // FUNCIONES PARA QUERIES INDIVIDUALES
+    const createPowerQueryForPlant = (plantName) => `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["PVO_id"] == "66KV" or r["PVO_id"] == "CONTADOR01")
+        |> filter(fn: (r) => r["_field"] == "P")
+        |> aggregateWindow(every: 20m, fn: mean, createEmpty: false)
+        |> last()
+    `;
+
+    const createEnergyQueryForPlant = (plantName) => `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "EPV")
+        |> cumulativeSum()
+        |> last()
+    `;
+
+    const createIrradianceQueryForPlant = (plantName) => `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["PVO_type"] == "METEO")
+        |> filter(fn: (r) => r["_field"] == "RadPOA01")
+        |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)
+        |> last()
+    `;
+
+    const createIrradiationQueryForPlant = (plantName) => `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "H_PoA")
+        |> cumulativeSum()
+        |> last()
+    `;
+
+    const createProfitabilityQueryForPlant = (plantName) => `
+      from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "EPV")
+        |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
+        |> map(fn: (r) => ({ r with _value: r._value / 1000.0 }))
+        |> filter(fn: (r) => r._value >= 0.0)
+        |> last()
+    `;
+
+    const createPRQueryForPlant = (plantName) => `
+      data1 = from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "H_PoA")
+        |> cumulativeSum()
+        |> last()
+        |> keep(columns: ["_time", "_value"])
+        |> rename(columns: {_value: "H_POA"})
+
+      data2 = from(bucket: "PV")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["PVO_Plant"] == "${plantName}")
+        |> filter(fn: (r) => r["type"] == "calculado")
+        |> filter(fn: (r) => r["_field"] == "EPV")
+        |> cumulativeSum()
+        |> last()
+        |> keep(columns: ["_time", "_value"])
+        |> rename(columns: {_value: "E_PV"})
+
+      join(
+        tables: {key1: data1, key2: data2},
+        on: ["_time"],
+        method: "inner"
+      )
+      |> map(fn: (r) => ({
+          r with
+          PR: r.E_PV/(${plantName === 'LAMAJA' ? '4400.0' : '3300.0'}*r.H_POA)*100000.0
+      }))
+      |> keep(columns: ["_time", "PR"])
+    `;
+
+    const createElecDispoQueryForPlant = (plantName) => {
+      if (plantName === 'LAMAJA') {
+        return `
+          from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["_field"] == "AvEle")
+            |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA")
+            |> filter(fn: (r) => r["PVO_Zone"] == "SUBESTACION")
+            |> filter(fn: (r) => r["PVO_id"] == "66KV")
+            |> filter(fn: (r) => r["PVO_type"] == "ESTADO")
+            |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+            |> last()
+        `;
+      } else {
+        return `
+          from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR")
+            |> filter(fn: (r) => r["PVO_id"] == "ESTADO")
+            |> filter(fn: (r) => r["_field"] == "DispoElec")
+            |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+            |> last()
+        `;
+      }
+    };
+
+    const createMecDispoQueryForPlant = (plantName) => {
+      if (plantName === 'LAMAJA') {
+        // LAMAJA no tiene datos de disposición mecánica, retornar query que no devuelve resultados
+        return `
+          from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA")
+            |> filter(fn: (r) => r["PVO_id"] == "ESTADO")
+            |> filter(fn: (r) => r["_field"] == "DispoMec")
+            |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+            |> last()
+        `;
+      } else {
+        return `
+          from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR")
+            |> filter(fn: (r) => r["PVO_id"] == "ESTADO")
+            |> filter(fn: (r) => r["_field"] == "DispoMec")
+            |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+            |> last()
+        `;
+      }
+    };
+
+    // VARIABLES PARA ALMACENAR RESULTADOS
     let totalPower = 0;
     let totalEnergy = 0;
     let totalIrradiance = 0;
+    let totalIrradiation = 0;
     let totalProfitability = 0;
+    let totalElecDispo = 0;
+    let totalMecDispo = 0;
+    let totalPR = 0;
     let plantsData = new Map();
     let geoData = [];
 
-    // Ejecutar query de potencia total
+    // EJECUTAR QUERIES TOTALES
+    
+    // Potencia total
     try {
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalPowerQuery, {
           next(row, tableMeta) {
             const rowData = tableMeta.toObject(row);
-            totalPower = (rowData.suma || 0) / 1000; // Convertir a MW
+            totalPower = (rowData.suma || 0) / 1000;
           },
           error(error) {
             console.error('Error en query de potencia total:', error);
-            resolve(); // Continuar sin bloquear
+            resolve();
           },
           complete() {
             resolve();
@@ -202,17 +385,17 @@ export async function GET(request) {
       console.error('Exception en query de potencia total:', error);
     }
 
-    // Ejecutar query de energía total
+    // Energía total
     try {
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalEnergyQuery, {
           next(row, tableMeta) {
             const rowData = tableMeta.toObject(row);
-            totalEnergy = (rowData.suma || 0) / 1000; // Convertir a MWh
+            totalEnergy = (rowData.suma || 0) / 1000;
           },
           error(error) {
             console.error('Error en query de energía total:', error);
-            resolve(); // Continuar sin bloquear
+            resolve();
           },
           complete() {
             resolve();
@@ -223,17 +406,17 @@ export async function GET(request) {
       console.error('Exception en query de energía total:', error);
     }
 
-    // Ejecutar query de irradiancia total
+    // Irradiancia total
     try {
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalIrradianceQuery, {
           next(row, tableMeta) {
             const rowData = tableMeta.toObject(row);
-            totalIrradiance = rowData.suma || 0; // Ya está en las unidades correctas
+            totalIrradiance = rowData.suma || 0;
           },
           error(error) {
             console.error('Error en query de irradiancia total:', error);
-            resolve(); // Continuar sin bloquear
+            resolve();
           },
           complete() {
             resolve();
@@ -244,17 +427,38 @@ export async function GET(request) {
       console.error('Exception en query de irradiancia total:', error);
     }
 
-    // Ejecutar query de rentabilidad total
+    // Irradiación total
+    try {
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(totalIrradiationQuery, {
+          next(row, tableMeta) {
+            const rowData = tableMeta.toObject(row);
+            totalIrradiation = rowData.suma || 0;
+          },
+          error(error) {
+            console.error('Error en query de irradiación total:', error);
+            resolve();
+          },
+          complete() {
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Exception en query de irradiación total:', error);
+    }
+
+    // Rentabilidad total
     try {
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalProfitabilityQuery, {
           next(row, tableMeta) {
             const rowData = tableMeta.toObject(row);
-            totalProfitability = rowData.suma || 0; // Ya está en MWh
+            totalProfitability = rowData.suma || 0;
           },
           error(error) {
             console.error('Error en query de rentabilidad total:', error);
-            resolve(); // Continuar sin bloquear
+            resolve();
           },
           complete() {
             resolve();
@@ -265,8 +469,72 @@ export async function GET(request) {
       console.error('Exception en query de rentabilidad total:', error);
     }
 
-    // Ejecutar queries individuales para cada planta
+    // Disposición eléctrica total
+    try {
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(totalElecDispoQuery, {
+          next(row, tableMeta) {
+            const rowData = tableMeta.toObject(row);
+            totalElecDispo = rowData.AvGen || 0;
+          },
+          error(error) {
+            console.error('Error en query de disposición eléctrica total:', error);
+            resolve();
+          },
+          complete() {
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Exception en query de disposición eléctrica total:', error);
+    }
+
+    // Disposición mecánica total
+    try {
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(totalMecDispoQuery, {
+          next(row, tableMeta) {
+            const rowData = tableMeta.toObject(row);
+            totalMecDispo = rowData._value || 0; // Solo RETAMAR
+          },
+          error(error) {
+            console.error('Error en query de disposición mecánica total:', error);
+            resolve();
+          },
+          complete() {
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Exception en query de disposición mecánica total:', error);
+    }
+
+    // PR (Performance Ratio) total
+    try {
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(totalPRQuery, {
+          next(row, tableMeta) {
+            const rowData = tableMeta.toObject(row);
+            totalPR = rowData.PR || 0;
+          },
+          error(error) {
+            console.error('Error en query de PR total:', error);
+            resolve();
+          },
+          complete() {
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Exception en query de PR total:', error);
+    }
+
+    // EJECUTAR QUERIES INDIVIDUALES PARA CADA PLANTA
     for (const plantName of availablePlants) {
+      
       // Potencia individual
       try {
         await new Promise((resolve, reject) => {
@@ -276,7 +544,7 @@ export async function GET(request) {
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
-              plantsData.get(plantName).power = (rowData._value || 0) / 1000; // Convertir kW a MW (mantener negativos)
+              plantsData.get(plantName).power = (rowData._value || 0) / 1000;
               plantsData.get(plantName).timestamp = rowData._time;
             },
             error(error) {
@@ -301,7 +569,7 @@ export async function GET(request) {
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
-              plantsData.get(plantName).energy = (rowData._value || 0) / 1000; // Convertir kWh a MWh
+              plantsData.get(plantName).energy = (rowData._value || 0) / 1000;
             },
             error(error) {
               console.error(`Error en query de energía para ${plantName}:`, error);
@@ -325,7 +593,7 @@ export async function GET(request) {
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
-              plantsData.get(plantName).irradiance = rowData._value || 0; // W/m²
+              plantsData.get(plantName).irradiance = rowData._value || 0;
             },
             error(error) {
               console.error(`Error en query de irradiancia para ${plantName}:`, error);
@@ -340,6 +608,30 @@ export async function GET(request) {
         console.error(`Exception en query de irradiancia para ${plantName}:`, error);
       }
 
+      // Irradiación individual
+      try {
+        await new Promise((resolve, reject) => {
+          queryApi.queryRows(createIrradiationQueryForPlant(plantName), {
+            next(row, tableMeta) {
+              const rowData = tableMeta.toObject(row);
+              if (!plantsData.has(plantName)) {
+                plantsData.set(plantName, {});
+              }
+              plantsData.get(plantName).irradiation = rowData._value || 0;
+            },
+            error(error) {
+              console.error(`Error en query de irradiación para ${plantName}:`, error);
+              resolve();
+            },
+            complete() {
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        console.error(`Exception en query de irradiación para ${plantName}:`, error);
+      }
+
       // Rentabilidad individual
       try {
         await new Promise((resolve, reject) => {
@@ -349,7 +641,7 @@ export async function GET(request) {
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
-              plantsData.get(plantName).profitability = (rowData._value || 0) / 1000; // Convertir kWh a MWh
+              plantsData.get(plantName).profitability = rowData._value || 0;
             },
             error(error) {
               console.error(`Error en query de rentabilidad para ${plantName}:`, error);
@@ -363,9 +655,100 @@ export async function GET(request) {
       } catch (error) {
         console.error(`Exception en query de rentabilidad para ${plantName}:`, error);
       }
+
+      // Disposición eléctrica individual
+      try {
+        await new Promise((resolve, reject) => {
+          queryApi.queryRows(createElecDispoQueryForPlant(plantName), {
+            next(row, tableMeta) {
+              const rowData = tableMeta.toObject(row);
+              if (!plantsData.has(plantName)) {
+                plantsData.set(plantName, {});
+              }
+              plantsData.get(plantName).elecDispo = rowData._value || 0;
+            },
+            error(error) {
+              console.error(`Error en query de disposición eléctrica para ${plantName}:`, error);
+              resolve();
+            },
+            complete() {
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        console.error(`Exception en query de disposición eléctrica para ${plantName}:`, error);
+      }
+
+      // Disposición mecánica individual
+      try {
+        await new Promise((resolve, reject) => {
+          queryApi.queryRows(createMecDispoQueryForPlant(plantName), {
+            next(row, tableMeta) {
+              const rowData = tableMeta.toObject(row);
+              if (!plantsData.has(plantName)) {
+                plantsData.set(plantName, {});
+              }
+              // Solo asignar valor si es RETAMAR, para LAMAJA dejarlo como null
+              if (plantName === 'RETAMAR') {
+                plantsData.get(plantName).mecDispo = rowData._value || 0;
+              } else {
+                plantsData.get(plantName).mecDispo = null; // LAMAJA no tiene datos
+              }
+            },
+            error(error) {
+              console.error(`Error en query de disposición mecánica para ${plantName}:`, error);
+              // Para LAMAJA, establecer explícitamente como null
+              if (plantName === 'LAMAJA') {
+                if (!plantsData.has(plantName)) {
+                  plantsData.set(plantName, {});
+                }
+                plantsData.get(plantName).mecDispo = null;
+              }
+              resolve();
+            },
+            complete() {
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        console.error(`Exception en query de disposición mecánica para ${plantName}:`, error);
+        // Para LAMAJA, establecer explícitamente como null
+        if (plantName === 'LAMAJA') {
+          if (!plantsData.has(plantName)) {
+            plantsData.set(plantName, {});
+          }
+          plantsData.get(plantName).mecDispo = null;
+        }
+      }
+
+      // PR (Performance Ratio) individual
+      try {
+        await new Promise((resolve, reject) => {
+          queryApi.queryRows(createPRQueryForPlant(plantName), {
+            next(row, tableMeta) {
+              const rowData = tableMeta.toObject(row);
+              if (!plantsData.has(plantName)) {
+                plantsData.set(plantName, {});
+              }
+              plantsData.get(plantName).pr = rowData.PR || 0;
+            },
+            error(error) {
+              console.error(`Error en query de PR para ${plantName}:`, error);
+              resolve();
+            },
+            complete() {
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        console.error(`Exception en query de PR para ${plantName}:`, error);
+      }
     }
 
-    // Si las queries totales fallaron, calcular desde datos individuales
+    // CÁLCULO DE FALLBACKS
     if (totalPower === 0) {
       plantsData.forEach((data) => {
         totalPower += data.power || 0;
@@ -379,44 +762,77 @@ export async function GET(request) {
     }
 
     if (totalIrradiance === 0) {
-      // Para irradiancia, usar la fórmula ponderada como en Grafana
       const lamajaIrradiance = plantsData.get('LAMAJA')?.irradiance || 0;
       const retamarIrradiance = plantsData.get('RETAMAR')?.irradiance || 0;
       totalIrradiance = (4400.0 * lamajaIrradiance + 3300.0 * retamarIrradiance) / 7700.0;
     }
 
+    if (totalIrradiation === 0) {
+      plantsData.forEach((data) => {
+        totalIrradiation += data.irradiation || 0;
+      });
+    }
+
+    if (totalElecDispo === 0) {
+      const lamajaElecDispo = plantsData.get('LAMAJA')?.elecDispo || 0;
+      const retamarElecDispo = plantsData.get('RETAMAR')?.elecDispo || 0;
+      
+      if (lamajaElecDispo > 0 || retamarElecDispo > 0) {
+        totalElecDispo = (lamajaElecDispo * 4.4 + retamarElecDispo * 3.33) / 7.73;
+      }
+    }
+
+    if (totalMecDispo === 0) {
+      // Para disposición mecánica, solo usar RETAMAR (LAMAJA no tiene datos)
+      const retamarMecDispo = plantsData.get('RETAMAR')?.mecDispo || 0;
+      totalMecDispo = retamarMecDispo;
+    }
+
+    if (totalPR === 0) {
+      // Para PR, usar fórmula ponderada si hay datos individuales
+      const lamajaPR = plantsData.get('LAMAJA')?.pr || 0;
+      const retamarPR = plantsData.get('RETAMAR')?.pr || 0;
+      
+      if (lamajaPR > 0 || retamarPR > 0) {
+        totalPR = (lamajaPR * 4400.0 + retamarPR * 3300.0) / 7700.0;
+      }
+    }
+
     if (totalProfitability === 0) {
-      // Para rentabilidad, sumar los valores individuales
       plantsData.forEach((data) => {
         totalProfitability += data.profitability || 0;
       });
     }
 
-    // Ejecutar query de datos geográficos
-    await new Promise((resolve, reject) => {
-      queryApi.queryRows(geoDataQuery, {
-        next(row, tableMeta) {
-          const rowData = tableMeta.toObject(row);
-          geoData.push({
-            plant: rowData.Plant,
-            AvEle: rowData.AvEle || 0,
-            AvMec: rowData.AvMec || 0,
-            Irrad: rowData.Irrad || 0,
-            latitude: rowData.latitude,
-            longitude: rowData.longitude
-          });
-        },
-        error(error) {
-          console.error('Error en query geo data:', error);
-          reject(error);
-        },
-        complete() {
-          resolve();
-        }
+    // EJECUTAR QUERY DE DATOS GEOGRÁFICOS
+    try {
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(geoDataQuery, {
+          next(row, tableMeta) {
+            const rowData = tableMeta.toObject(row);
+            geoData.push({
+              plant: rowData.Plant,
+              AvEle: rowData.AvEle || 0,
+              AvMec: rowData.AvMec || 0,
+              Irrad: rowData.Irrad || 0,
+              latitude: rowData.latitude,
+              longitude: rowData.longitude
+            });
+          },
+          error(error) {
+            console.error('Error en query geo data:', error);
+            resolve();
+          },
+          complete() {
+            resolve();
+          }
+        });
       });
-    });
+    } catch (error) {
+      console.error('Exception en query geo data:', error);
+    }
 
-    // Combinar todos los datos
+    // COMBINAR DATOS
     const combinedData = Array.from(plantsData.entries()).map(([plantName, plantData]) => {
       const geoInfo = geoData.find(g => 
         g.plant && plantName && 
@@ -428,9 +844,11 @@ export async function GET(request) {
         powerMW: plantData.power || 0,
         energyMWh: plantData.energy || 0,
         irradiance: plantData.irradiance || geoInfo.Irrad || 0,
+        irradiation: plantData.irradiation || 0,
         profitabilityMWh: plantData.profitability || 0,
-        dispoElec: geoInfo.AvEle || 0,
-        dispoMec: geoInfo.AvMec || 0,
+        dispoElec: plantData.elecDispo || geoInfo.AvEle || 0,
+        dispoMec: plantData.mecDispo !== null ? plantData.mecDispo : null, // Mantener null para LAMAJA
+        pr: plantData.pr || 0,
         coordinates: [geoInfo.latitude || 0, geoInfo.longitude || 0],
         timestamp: plantData.timestamp
       };
@@ -438,9 +856,13 @@ export async function GET(request) {
 
     return Response.json({
       success: true,
-      totalPower: Math.round(totalPower * 100) / 100,
+      totalPower: totalPower,
       totalEnergy: Math.round(totalEnergy * 100) / 100,
       totalIrradiance: Math.round(totalIrradiance * 100) / 100,
+      totalIrradiation: Math.round(totalIrradiation * 100) / 100,
+      totalElecDispo: Math.round(totalElecDispo * 100) / 100,
+      totalMecDispo: Math.round(totalMecDispo * 100) / 100,
+      totalPR: Math.round(totalPR * 100) / 100,
       totalProfitability: Math.round(totalProfitability * 100) / 100,
       plants: combinedData,
       metadata: {
@@ -459,6 +881,10 @@ export async function GET(request) {
         totalPower: 0,
         totalEnergy: 0,
         totalIrradiance: 0,
+        totalIrradiation: 0,
+        totalElecDispo: 0,
+        totalMecDispo: 0,
+        totalPR: 0,
         totalProfitability: 0,
         plants: []
       },

@@ -9,12 +9,15 @@ const PlantsTable = () => {
   const [totalPower, setTotalPower] = useState(0);
   const [totalEnergy, setTotalEnergy] = useState(0);
   const [totalIrradiance, setTotalIrradiance] = useState(0);
+  const [totalIrradiation, setTotalIrradiation] = useState(0);
+  const [totalElecDispo, setTotalElecDispo] = useState(0);
   const [totalProfitability, setTotalProfitability] = useState(0);
+  const [totalMecDispo, setTotalMecDispo] = useState(0);
   const [timeSeriesData, setTimeSeriesData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [totalPR, setTotalPR] = useState(0);
   const [error, setError] = useState(null);
 
-  // Función para cargar datos de serie temporal
   const loadTimeSeriesData = async (metric, plant) => {
     try {
       const response = await fetch(`/api/timeseries-data?metric=${metric}&plant=${plant}&hours=24`);
@@ -41,6 +44,10 @@ const PlantsTable = () => {
         setTotalPower(result.totalPower || 0);
         setTotalEnergy(result.totalEnergy || 0);
         setTotalIrradiance(result.totalIrradiance || 0);
+        setTotalIrradiation(result.totalIrradiation || 0);
+        setTotalElecDispo(result.totalElecDispo || 0);
+        setTotalMecDispo(result.totalMecDispo || 0);
+        setTotalPR(result.totalPR || 0);
         setTotalProfitability(result.totalProfitability || 0);
         setError(null);
 
@@ -51,7 +58,8 @@ const PlantsTable = () => {
         timeSeriesPromises.push(
           loadTimeSeriesData('power', 'total').then(data => ['total', 'power', data]),
           loadTimeSeriesData('energy', 'total').then(data => ['total', 'energy', data]),
-          loadTimeSeriesData('irradiance', 'total').then(data => ['total', 'irradiance', data])
+          loadTimeSeriesData('irradiance', 'total').then(data => ['total', 'irradiance', data]),
+          loadTimeSeriesData('irradiation', 'total').then(data => ['total', 'irradiation', data])
         );
         
         // Datos por planta
@@ -59,7 +67,8 @@ const PlantsTable = () => {
           timeSeriesPromises.push(
             loadTimeSeriesData('power', plant.name).then(data => [plant.name, 'power', data]),
             loadTimeSeriesData('energy', plant.name).then(data => [plant.name, 'energy', data]),
-            loadTimeSeriesData('irradiance', plant.name).then(data => [plant.name, 'irradiance', data])
+            loadTimeSeriesData('irradiance', plant.name).then(data => [plant.name, 'irradiance', data]),
+            loadTimeSeriesData('irradiation', plant.name).then(data => [plant.name, 'irradiation', data])
           );
         }
 
@@ -99,6 +108,9 @@ const PlantsTable = () => {
       totalPowerMW: totalPower,
       totalEnergyMWh: totalEnergy,
       avgIrradiance: totalIrradiance,
+      avgIrradiation: totalIrradiation,
+      avgElecDispo: totalElecDispo,
+      avgMecDispo: totalMecDispo,
       avgDispoElec: 0,
       avgDispoMec: 0,
       totalAlarms: 0
@@ -119,6 +131,9 @@ const PlantsTable = () => {
       totalPowerMW: totalPower,
       totalEnergyMWh: totalEnergy,
       avgIrradiance: totalIrradiance,
+      avgIrradiation: totalIrradiation,
+      avgElecDispo: totalElecDispo,
+      avgMecDispo: totalMecDispo,
       avgDispoElec: totals.totalDispoElec / plantsData.length,
       avgDispoMec: totals.totalDispoMec / plantsData.length,
       totalAlarms: totals.totalAlarms
@@ -173,31 +188,40 @@ const PlantsTable = () => {
     );
   };
 
-  // Función para formatear números correctamente
-  const formatNumber = (value, decimals = 2) => {
+  // Función para formatear números con mayor precisión para potencia
+  const formatNumber = (value, decimals = 2, metric = null) => {
     if (value === null || value === undefined || isNaN(value)) {
       return '--';
+    }
+    
+    // Para potencia, mantener 2 decimales para coincidir con Grafana
+    if (metric === 'power') {
+      decimals = 2; // Mostrar 2 decimales para potencia
     }
     
     const formatted = Number(value).toFixed(decimals);
     return formatted === '-0.00' || formatted === '-0.0' ? '0.00' : formatted;
   };
 
-  // Componente para celda con gráfica y valor - formato inteligente
-  const DataCellWithChart = ({ value, unit, chartData, chartColor = '#3b82f6', chartType = 'line' }) => {
-    // Para valores de potencia pequeños (< 1 MW), mostrar en kW
+  // Componente para celda con gráfica y valor - formato inteligente mejorado
+  const DataCellWithChart = ({ value, unit, chartData, chartColor = '#3b82f6', chartType = 'line', metric = null }) => {
+    // Para valores de potencia pequeños (< 1 MW), mostrar en kW con más precisión
     let displayValue = value;
     let displayUnit = unit;
+    let displayDecimals = 2;
     
     if (unit === 'MW' && Math.abs(value) < 1) {
       displayValue = value * 1000;
       displayUnit = 'kW';
+      displayDecimals = 1; // Para kW usar 1 decimal
+    } else if (metric === 'power') {
+      displayDecimals = 2; // Para MW de potencia usar 2 decimales
     }
     
     return (
       <div className="text-center p-2">
         <div className="text-base font-semibold mb-2">
-          {formatNumber(displayValue, displayUnit === 'kW' ? 1 : 2)}
+          {formatNumber(displayValue, displayDecimals, metric)}
         </div>
         <div className="text-xs text-secondary opacity-75 mb-2">{displayUnit}</div>
         <div className="flex justify-center">
@@ -209,6 +233,20 @@ const PlantsTable = () => {
 
   // Componente para medidores circulares
   const CircularGauge = ({ value, label, color = 'green' }) => {
+    // Si el valor es null o undefined, mostrar vacío
+    if (value === null || value === undefined) {
+      return (
+        <div className="flex flex-col items-center">
+          <div className="relative w-16 h-16">
+            <div className="w-16 h-16 rounded-full border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+              <span className="text-xs text-gray-400">--</span>
+            </div>
+          </div>
+          <span className="text-xs text-secondary mt-1 text-center">{label}</span>
+        </div>
+      );
+    }
+
     const percentage = Math.min(Math.max(value, 0), 100);
     const circumference = 2 * Math.PI * 40;
     const strokeDashoffset = circumference - (percentage / 100) * circumference;
@@ -217,7 +255,8 @@ const PlantsTable = () => {
       green: '#10b981',
       yellow: '#f59e0b',
       red: '#ef4444',
-      blue: '#3b82f6'
+      blue: '#3b82f6',
+      gray: '#6b7280'
     };
 
     return (
@@ -260,7 +299,7 @@ const PlantsTable = () => {
   const ProfitabilityCell = ({ value }) => (
     <div className="text-center p-2">
       <div className="inline-flex items-center justify-center px-3 py-1 bg-header-table rounded-lg">
-        <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+        <span className="text-sm font-semibold">
           {Math.round(value)}€
         </span>
       </div>
@@ -313,7 +352,7 @@ const PlantsTable = () => {
               {/* Fila Total con gráficas reales */}
               <tr className="border-b border-custom">
                 <td className="p-4">
-                  <div className="font-bold text-lg text-primary">Total</div>
+                  <div className="font-semibold text-lg text-primary">Total</div>
                 </td>
                 <td className="p-4">
                   <DataCellWithChart 
@@ -322,6 +361,7 @@ const PlantsTable = () => {
                     chartData={timeSeriesData.total?.power || []}
                     chartColor="#3b82f6"
                     chartType="area"
+                    metric="power"
                   />
                 </td>
                 <td className="p-4">
@@ -344,38 +384,38 @@ const PlantsTable = () => {
                 </td>
                 <td className="p-4">
                   <DataCellWithChart 
-                    value={totals.avgIrradiance / 100}
+                    value={totals.avgIrradiation}
                     unit="kWh/m²"
-                    chartData={timeSeriesData.total?.irradiance?.map(d => ({...d, value: d.value / 100})) || []}
+                    chartData={timeSeriesData.total?.irradiation || []}
                     chartColor="#f59e0b"
                     chartType="line"
                   />
                 </td>
                 <td className="p-4">
-                  <ProfitabilityCell value={totalProfitability * 30} />
+                  <ProfitabilityCell value={totalProfitability} />
                 </td>
                 <td className="p-4">
                   <CircularGauge 
-                    value={totals.avgDispoElec} 
+                    value={totals.avgElecDispo} 
                     color="green"
                   />
                 </td>
                 <td className="p-4">
                   <CircularGauge 
-                    value={totals.avgDispoMec} 
+                    value={totals.avgMecDispo} 
                     color="green"
                   />
                 </td>
                 <td className="p-4">
                   <CircularGauge 
-                    value={75} 
-                    color="yellow"
+                    value={totalPR} 
+                    color="green"
                   />
                 </td>
                 <td className="p-4">
                   <div className="text-center">
                     <div className="inline-flex items-center justify-center w-8 h-8 bg-header-table rounded-full">
-                      <span className="text-sm font-bold text-green-600 dark:text-green-400">{totals.totalAlarms}</span>
+                      <span className="text-sm font-bold">{totals.totalAlarms}</span>
                     </div>
                     <div className="text-xs text-secondary mt-1">Alertas</div>
                   </div>
@@ -397,6 +437,7 @@ const PlantsTable = () => {
                       chartData={timeSeriesData[plant.name]?.power || []}
                       chartColor="#3b82f6"
                       chartType="area"
+                      metric="power"
                     />
                   </td>
                   <td className="p-4">
@@ -419,15 +460,15 @@ const PlantsTable = () => {
                   </td>
                   <td className="p-4">
                     <DataCellWithChart 
-                      value={plant.irradiance / 100}
+                      value={plant.irradiation || 0}
                       unit="kWh/m²"
-                      chartData={timeSeriesData[plant.name]?.irradiance?.map(d => ({...d, value: d.value / 100})) || []}
+                      chartData={timeSeriesData[plant.name]?.irradiation || []}
                       chartColor="#f59e0b"
                       chartType="line"
                     />
                   </td>
                   <td className="p-4">
-                    <ProfitabilityCell value={(plant.profitabilityMWh || 0) * 30} />
+                    <ProfitabilityCell value={plant.profitabilityMWh || 0} />
                   </td>
                   <td className="p-4">
                     <CircularGauge 
@@ -438,19 +479,27 @@ const PlantsTable = () => {
                   <td className="p-4">
                     <CircularGauge 
                       value={plant.dispoMec} 
-                      color={plant.dispoMec >= 90 ? "green" : plant.dispoMec >= 70 ? "yellow" : "red"}
+                      color={
+                        plant.dispoMec === null || plant.dispoMec === undefined 
+                          ? "gray" 
+                          : plant.dispoMec >= 90 
+                            ? "green" 
+                            : plant.dispoMec >= 70 
+                              ? "yellow" 
+                              : "red"
+                      }
                     />
                   </td>
                   <td className="p-4">
                     <CircularGauge 
-                      value={plant.dispoElec * 0.8} 
-                      color="yellow"
+                      value={plant.pr} 
+                      color="green"
                     />
                   </td>
                   <td className="p-4">
                     <div className="text-center">
                       <div className="inline-flex items-center justify-center w-8 h-8 bg-header-table rounded-full">
-                        <span className="text-sm font-bold text-green-600 dark:text-green-400">0</span>
+                        <span className="text-sm font-bold">0</span>
                       </div>
                       <div className="text-xs text-secondary mt-1">Sin alertas</div>
                     </div>

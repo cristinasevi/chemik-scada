@@ -1,7 +1,7 @@
 // src/app/api/grafana-data/route.js
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const metric = searchParams.get('metric'); // 'power', 'energy', 'irradiance'
+  const metric = searchParams.get('metric'); // 'power', 'energy', 'irradiance', 'irradiation', 'profitability'
   const plant = searchParams.get('plant'); // 'LAMAJA', 'RETAMAR', or 'total'
   
   const grafanaUrl = process.env.GRAFANA_URL || 'http://localhost:3000';
@@ -35,7 +35,7 @@ export async function GET(request) {
         }
         break;
         
-      case 'energy':
+      case 'profitability':
         if (plant === 'total') {
           query = `from(bucket: "PV")
             |> range(start: -24h)
@@ -45,6 +45,53 @@ export async function GET(request) {
             |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
             |> keep(columns: ["_time","PVO_Plant", "_value"])
             |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+            |> map(fn: (r) => ({r with suma: (r.LAMAJA + r.RETAMAR) / 1000.0}))
+            |> keep(columns: ["_time","suma"])
+            |> filter(fn: (r) => r.suma >= 0.0)`;
+        } else {
+          query = `from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "${plant}")
+            |> filter(fn: (r) => r["type"] == "calculado")
+            |> filter(fn: (r) => r["_field"] == "EPV")
+            |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
+            |> map(fn: (r) => ({r with _value: r._value / 1000.0}))
+            |> filter(fn: (r) => r._value >= 0.0)`;
+        }
+        break;
+        
+      case 'irradiation':
+        if (plant === 'total') {
+          query = `from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+            |> filter(fn: (r) => r["type"] == "calculado")
+            |> filter(fn: (r) => r["_field"] == "H_PoA")
+            |> keep(columns: ["_time","PVO_Plant", "_value"])
+            |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+            |> cumulativeSum(columns: ["LAMAJA","RETAMAR"])
+            |> map(fn: (r) => ({r with suma: r.LAMAJA + r.RETAMAR}))
+            |> keep(columns: ["_time","suma"])`;
+        } else {
+          query = `from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "${plant}")
+            |> filter(fn: (r) => r["type"] == "calculado")
+            |> filter(fn: (r) => r["_field"] == "H_PoA")
+            |> cumulativeSum()`;
+        }
+        break;
+        
+      case 'energy':
+        if (plant === 'total') {
+          query = `from(bucket: "PV")
+            |> range(start: -24h)
+            |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+            |> filter(fn: (r) => r["type"] == "calculado")
+            |> filter(fn: (r) => r["_field"] == "EPV")
+            |> keep(columns: ["_time","PVO_Plant", "_value"])
+            |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+            |> cumulativeSum(columns: ["LAMAJA","RETAMAR"])
             |> map(fn: (r) => ({r with suma: (r.LAMAJA + r.RETAMAR) / 1000}))
             |> keep(columns: ["_time","suma"])`;
         } else {
@@ -53,7 +100,7 @@ export async function GET(request) {
             |> filter(fn: (r) => r["PVO_Plant"] == "${plant}")
             |> filter(fn: (r) => r["type"] == "calculado")
             |> filter(fn: (r) => r["_field"] == "EPV")
-            |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
+            |> cumulativeSum()
             |> map(fn: (r) => ({r with _value: r._value / 1000}))`;
         }
         break;
@@ -62,7 +109,7 @@ export async function GET(request) {
         if (plant === 'total') {
           query = `from(bucket: "PV")
             |> range(start: -24h)
-            |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+            |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR" or r["PVO_Plant"] == "LAMAJA")
             |> filter(fn: (r) => r["PVO_type"] == "METEO")
             |> filter(fn: (r) => r["_field"] == "RadPOA01")
             |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)
