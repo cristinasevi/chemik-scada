@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useAuth } from '../contexts/AuthContext';
 import { Menu, Home, Database, Settings, Users, Activity, AlertTriangle, Cloud, Zap, Gauge, Download, FileText } from 'lucide-react';
 
 const Navbar = () => {
   const [showMainMenu, setShowMainMenu] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const { isAdmin } = useAuth();
 
   // Lista principal de navegación
   const mainItems = [
@@ -23,10 +25,10 @@ const Navbar = () => {
     { icon: FileText, label: "Informes dispositivos", path: "/informes-dispositivos" }
   ];
 
-  // Items del footer
+  // Items del footer - solo incluir usuarios si es admin
   const footerItems = [
     { icon: Settings, label: "Configuración", path: "/config" },
-    { icon: Users, label: "Usuarios", path: "/usuarios" }
+    ...(isAdmin ? [{ icon: Users, label: "Usuarios", path: "/usuarios" }] : [])
   ];
 
   const handleItemClick = (item) => {
@@ -34,9 +36,7 @@ const Navbar = () => {
     setShowMainMenu(false);
   };
 
-  const isActive = (path) => {
-    return pathname === path;
-  };
+  const isActive = (path) => pathname === path;
 
   return (
     <div className="relative">
@@ -62,22 +62,24 @@ const Navbar = () => {
               ))}
             </div>
 
-            <div className="border-t border-custom"></div>
-
-            <div className="p-2 space-y-1">
-              {footerItems.map((item) => (
-                <NavbarItem
-                  key={item.label}
-                  icon={item.icon}
-                  label={item.label}
-                  active={isActive(item.path)}
-                  onClick={() => handleItemClick(item)}
-                />
-              ))}
-            </div>
+            {footerItems.length > 0 && (
+              <>
+                <div className="border-t border-custom"></div>
+                <div className="p-2 space-y-1">
+                  {footerItems.map((item) => (
+                    <NavbarItem
+                      key={item.label}
+                      icon={item.icon}
+                      label={item.label}
+                      active={isActive(item.path)}
+                      onClick={() => handleItemClick(item)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Overlay para cerrar el menú */}
           <div 
             className="fixed inset-0 z-40" 
             onClick={() => setShowMainMenu(false)}
@@ -88,7 +90,6 @@ const Navbar = () => {
   );
 };
 
-// Componente para items individuales del navbar
 const NavbarItem = ({ icon: Icon, label, active = false, onClick, badge = null }) => (
   <button
     onClick={onClick}

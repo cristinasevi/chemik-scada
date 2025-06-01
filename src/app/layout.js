@@ -1,5 +1,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedLayout from './components/ProtectedLayout';
 import Header from './components/header';
 
 const inter = Inter({
@@ -10,7 +12,7 @@ const inter = Inter({
 
 export const metadata = {
   title: "Chemik Scada",
-  description: "Chemik Scada",
+  description: "Chemik Scada - Sistema de Monitoreo Solar",
 };
 
 export default function RootLayout({ children }) {
@@ -40,8 +42,12 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="font-inter antialiased">
-        <Header />
-        {children}
+        <AuthProvider>
+          <ProtectedLayout>
+            <Header />
+            {children}
+          </ProtectedLayout>
+        </AuthProvider>
       </body>
     </html>
   );
