@@ -213,7 +213,7 @@ const Map = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (isLoaded) return;
+    if (isLoaded || mapInstanceRef.current) return;
 
     const loadMap = async () => {
       try {
@@ -243,9 +243,12 @@ const Map = () => {
     };
 
     const initMap = () => {
-      if (!mapRef.current || !window.L) return;
+      if (!mapRef.current || !window.L || mapInstanceRef.current) return;
 
       try {
+        // Limpiar cualquier instancia previa del contenedor
+        mapRef.current.innerHTML = '';
+
         const map = window.L.map(mapRef.current, {
           center: [40.136361, -2.372718],
           zoom: 6.3,
@@ -274,6 +277,14 @@ const Map = () => {
     };
 
     loadMap();
+
+    // Cleanup al desmontar el componente
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
   }, [isLoaded]);
 
   useEffect(() => {
@@ -297,13 +308,13 @@ const Map = () => {
       <div className="w-full h-96 bg-panel rounded-lg flex items-center justify-center">
         <div className="text-center text-red-500">
           <AlertTriangle size={48} className="mx-auto mb-2" />
-          <p>Error: {error}</p>
+          <p>{error}</p>
           <button
             onClick={() => {
               setError(null);
               loadStationsData();
             }}
-            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
           >
             Reintentar
           </button>

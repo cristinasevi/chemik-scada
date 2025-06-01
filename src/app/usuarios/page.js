@@ -545,10 +545,10 @@ const UsersPage = () => {
 
     if (loading) {
         return (
-            <div className="p-6">
-                <div className="flex items-center justify-center h-64">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    <span className="ml-2 text-secondary">Cargando usuarios...</span>
+            <div className="w-full p-6 bg-panel rounded-lg">
+                <div className="flex items-center justify-center h-32 space-x-3">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-secondary">Cargando usuarios...</span>
                 </div>
             </div>
         );

@@ -22,7 +22,7 @@ const PlantsTable = () => {
     try {
       const response = await fetch(`/api/timeseries-data?metric=${metric}&plant=${plant}&hours=24`);
       const result = await response.json();
-      
+
       if (result.success) {
         return result.data;
       }
@@ -53,7 +53,7 @@ const PlantsTable = () => {
 
         // Cargar datos de series temporales
         const timeSeriesPromises = [];
-        
+
         // Datos totales
         timeSeriesPromises.push(
           loadTimeSeriesData('power', 'total').then(data => ['total', 'power', data]),
@@ -61,7 +61,7 @@ const PlantsTable = () => {
           loadTimeSeriesData('irradiance', 'total').then(data => ['total', 'irradiance', data]),
           loadTimeSeriesData('irradiation', 'total').then(data => ['total', 'irradiation', data])
         );
-        
+
         // Datos por planta
         for (const plant of result.plants || []) {
           timeSeriesPromises.push(
@@ -74,14 +74,14 @@ const PlantsTable = () => {
 
         const timeSeriesResults = await Promise.all(timeSeriesPromises);
         const newTimeSeriesData = {};
-        
+
         timeSeriesResults.forEach(([plant, metric, data]) => {
           if (!newTimeSeriesData[plant]) {
             newTimeSeriesData[plant] = {};
           }
           newTimeSeriesData[plant][metric] = data;
         });
-        
+
         setTimeSeriesData(newTimeSeriesData);
       } else {
         setError(result.error || 'Error al cargar datos');
@@ -96,7 +96,7 @@ const PlantsTable = () => {
 
   useEffect(() => {
     loadPlantsData();
-    
+
     // Auto-refresh cada 5 minutos para las gráficas
     const interval = setInterval(loadPlantsData, 300000);
     return () => clearInterval(interval);
@@ -159,8 +159,8 @@ const PlantsTable = () => {
             <AreaChart data={data}>
               <defs>
                 <linearGradient id={`gradient-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={color} stopOpacity={0}/>
+                  <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={color} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <Area
@@ -193,12 +193,12 @@ const PlantsTable = () => {
     if (value === null || value === undefined || isNaN(value)) {
       return '--';
     }
-    
+
     // Para potencia, mantener 2 decimales para coincidir con Grafana
     if (metric === 'power') {
       decimals = 2; // Mostrar 2 decimales para potencia
     }
-    
+
     const formatted = Number(value).toFixed(decimals);
     return formatted === '-0.00' || formatted === '-0.0' ? '0.00' : formatted;
   };
@@ -209,7 +209,7 @@ const PlantsTable = () => {
     let displayValue = value;
     let displayUnit = unit;
     let displayDecimals = 2;
-    
+
     if (unit === 'MW' && Math.abs(value) < 1) {
       displayValue = value * 1000;
       displayUnit = 'kW';
@@ -217,7 +217,7 @@ const PlantsTable = () => {
     } else if (metric === 'power') {
       displayDecimals = 2; // Para MW de potencia usar 2 decimales
     }
-    
+
     return (
       <div className="text-center p-2">
         <div className="text-base font-semibold mb-2">
@@ -309,9 +309,9 @@ const PlantsTable = () => {
   if (loading) {
     return (
       <div className="w-full p-6 bg-panel rounded-lg">
-        <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-          <span className="ml-2 text-secondary">Cargando datos y gráficas...</span>
+        <div className="flex items-center justify-center h-32 space-x-3">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-secondary">Cargando datos y gráficas...</span>
         </div>
       </div>
     );
@@ -355,7 +355,7 @@ const PlantsTable = () => {
                   <div className="font-semibold text-lg text-primary">Total</div>
                 </td>
                 <td className="p-4">
-                  <DataCellWithChart 
+                  <DataCellWithChart
                     value={totals.totalPowerMW}
                     unit="MW"
                     chartData={timeSeriesData.total?.power || []}
@@ -365,7 +365,7 @@ const PlantsTable = () => {
                   />
                 </td>
                 <td className="p-4">
-                  <DataCellWithChart 
+                  <DataCellWithChart
                     value={totals.totalEnergyMWh}
                     unit="MWh"
                     chartData={timeSeriesData.total?.energy || []}
@@ -374,7 +374,7 @@ const PlantsTable = () => {
                   />
                 </td>
                 <td className="p-4">
-                  <DataCellWithChart 
+                  <DataCellWithChart
                     value={totals.avgIrradiance}
                     unit="W/m²"
                     chartData={timeSeriesData.total?.irradiance || []}
@@ -383,7 +383,7 @@ const PlantsTable = () => {
                   />
                 </td>
                 <td className="p-4">
-                  <DataCellWithChart 
+                  <DataCellWithChart
                     value={totals.avgIrradiation}
                     unit="kWh/m²"
                     chartData={timeSeriesData.total?.irradiation || []}
@@ -395,20 +395,20 @@ const PlantsTable = () => {
                   <ProfitabilityCell value={totalProfitability} />
                 </td>
                 <td className="p-4">
-                  <CircularGauge 
-                    value={totals.avgElecDispo} 
+                  <CircularGauge
+                    value={totals.avgElecDispo}
                     color="green"
                   />
                 </td>
                 <td className="p-4">
-                  <CircularGauge 
-                    value={totals.avgMecDispo} 
+                  <CircularGauge
+                    value={totals.avgMecDispo}
                     color="green"
                   />
                 </td>
                 <td className="p-4">
-                  <CircularGauge 
-                    value={totalPR} 
+                  <CircularGauge
+                    value={totalPR}
                     color="green"
                   />
                 </td>
@@ -431,7 +431,7 @@ const PlantsTable = () => {
                     </div>
                   </td>
                   <td className="p-4">
-                    <DataCellWithChart 
+                    <DataCellWithChart
                       value={plant.powerMW}
                       unit="MW"
                       chartData={timeSeriesData[plant.name]?.power || []}
@@ -441,7 +441,7 @@ const PlantsTable = () => {
                     />
                   </td>
                   <td className="p-4">
-                    <DataCellWithChart 
+                    <DataCellWithChart
                       value={plant.energyMWh}
                       unit="MWh"
                       chartData={timeSeriesData[plant.name]?.energy || []}
@@ -450,7 +450,7 @@ const PlantsTable = () => {
                     />
                   </td>
                   <td className="p-4">
-                    <DataCellWithChart 
+                    <DataCellWithChart
                       value={plant.irradiance}
                       unit="W/m²"
                       chartData={timeSeriesData[plant.name]?.irradiance || []}
@@ -459,7 +459,7 @@ const PlantsTable = () => {
                     />
                   </td>
                   <td className="p-4">
-                    <DataCellWithChart 
+                    <DataCellWithChart
                       value={plant.irradiation || 0}
                       unit="kWh/m²"
                       chartData={timeSeriesData[plant.name]?.irradiation || []}
@@ -471,28 +471,28 @@ const PlantsTable = () => {
                     <ProfitabilityCell value={plant.profitabilityMWh || 0} />
                   </td>
                   <td className="p-4">
-                    <CircularGauge 
-                      value={plant.dispoElec} 
+                    <CircularGauge
+                      value={plant.dispoElec}
                       color="green"
                     />
                   </td>
                   <td className="p-4">
-                    <CircularGauge 
-                      value={plant.dispoMec} 
+                    <CircularGauge
+                      value={plant.dispoMec}
                       color={
-                        plant.dispoMec === null || plant.dispoMec === undefined 
-                          ? "gray" 
-                          : plant.dispoMec >= 90 
-                            ? "green" 
-                            : plant.dispoMec >= 70 
-                              ? "yellow" 
+                        plant.dispoMec === null || plant.dispoMec === undefined
+                          ? "gray"
+                          : plant.dispoMec >= 90
+                            ? "green"
+                            : plant.dispoMec >= 70
+                              ? "yellow"
                               : "red"
                       }
                     />
                   </td>
                   <td className="p-4">
-                    <CircularGauge 
-                      value={plant.pr} 
+                    <CircularGauge
+                      value={plant.pr}
                       color="green"
                     />
                   </td>
