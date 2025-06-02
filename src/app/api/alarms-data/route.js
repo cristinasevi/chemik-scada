@@ -4,9 +4,7 @@ export async function GET(request) {
     const grafanaUrl = process.env.GRAFANA_URL || 'http://localhost:3000';
     const grafanaToken = process.env.GRAFANA_TOKEN;
     
-    if (!grafanaToken) {
-      console.error('GRAFANA_TOKEN no está configurado');
-      
+    if (!grafanaToken) {     
       // Usar alarmas de ejemplo si no hay token
       const fallbackAlarms = createFallbackAlarms();
       const plantAlarms = groupAlarmsByPlant(fallbackAlarms);
@@ -30,8 +28,6 @@ export async function GET(request) {
       'Accept': 'application/json'
     };
 
-    console.log(`Conectando a Grafana: ${grafanaUrl}`);
-
     // Obtener alertas activas del Alertmanager de Grafana
     const alertsResponse = await fetch(`${grafanaUrl}/api/alertmanager/grafana/api/v2/alerts`, {
       headers,
@@ -39,14 +35,11 @@ export async function GET(request) {
     });
 
     if (!alertsResponse.ok) {
-      console.error(`Error en API de Grafana: ${alertsResponse.status} - ${alertsResponse.statusText}`);
-      
       // Fallback con datos de ejemplo
       return generateFallbackResponse('Error de conexión con Grafana');
     }
 
     const activeAlerts = await alertsResponse.json();
-    console.log(`Obtenidas ${activeAlerts.length} alertas de Grafana`);
 
     // Procesar y mapear las alarmas
     const mappedAlarms = [];
@@ -64,7 +57,6 @@ export async function GET(request) {
     // Si no hay alertas reales, usar datos de demostración
     let finalAlarms = mappedAlarms;
     if (mappedAlarms.length === 0) {
-      console.log('No hay alertas activas, generando datos de demostración');
       finalAlarms = generateDemoAlarms();
     }
 
@@ -80,12 +72,10 @@ export async function GET(request) {
       summary,
       timestamp: new Date().toISOString(),
       source: 'grafana_api',
-      grafanaUrl: grafanaUrl.replace(/\/+$/, ''), // Info para debug
       alertsCount: activeAlerts.length
     });
 
   } catch (error) {
-    console.error('Error obteniendo alarmas desde Grafana:', error);
     return generateFallbackResponse(error.message);
   }
 }

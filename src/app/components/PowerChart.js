@@ -68,7 +68,7 @@ const PowerChart = ({ height = "400px" }) => {
         .sort((a, b) => a.timestamp - b.timestamp);
 
       // Calcular estadísticas exactas como Grafana
-      const calculateStats = (values) => {
+       const calculateStats = (values) => {
         if (values.length === 0) return { min: 0, mean: 0, max: 0, last: 0 };
         
         const validValues = values.filter(v => v !== null && v !== undefined && !isNaN(v));
@@ -78,8 +78,19 @@ const PowerChart = ({ height = "400px" }) => {
         const max = Math.max(...validValues);
         const mean = validValues.reduce((sum, val) => sum + val, 0) / validValues.length;
         
-        // Para "Last", tomar el último valor del array original
-        const last = values[values.length - 1] || 0;
+        // Para "Last", buscar el último valor válido (diferente de 0) del array
+        let last = 0;
+        for (let i = values.length - 1; i >= 0; i--) {
+          if (values[i] !== null && values[i] !== undefined && !isNaN(values[i]) && values[i] !== 0) {
+            last = values[i];
+            break;
+          }
+        }
+        
+        // Si no encontramos ningún valor diferente de 0, usar el último valor del array
+        if (last === 0 && values.length > 0) {
+          last = values[values.length - 1] || 0;
+        }
         
         return { min, mean, max, last };
       };
@@ -98,7 +109,6 @@ const PowerChart = ({ height = "400px" }) => {
       setError(null);
     } catch (err) {
       setError('Error cargando datos de potencia');
-      console.error('Error cargando PowerChart:', err);
     } finally {
       setLoading(false);
     }
