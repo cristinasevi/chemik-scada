@@ -17,6 +17,7 @@ const PlantsTable = () => {
   const [loading, setLoading] = useState(true);
   const [totalPR, setTotalPR] = useState(0);
   const [error, setError] = useState(null);
+  const [alarmsData, setAlarmsData] = useState({ totalAlarms: 0, plantAlarms: {} });
 
   const loadTimeSeriesData = async (metric, plant) => {
     try {
@@ -30,6 +31,21 @@ const PlantsTable = () => {
     } catch (error) {
       console.error(`Error loading ${metric} data for ${plant}:`, error);
       return [];
+    }
+  };
+
+  const loadAlarmsData = async () => {
+    try {
+      const response = await fetch('/api/alarms-data');
+      const result = await response.json();
+
+      if (result.success) {
+        return result;
+      }
+      return { totalAlarms: 0, plantAlarms: {} };
+    } catch (error) {
+      console.error('Error loading alarms:', error);
+      return { totalAlarms: 0, plantAlarms: {} };
     }
   };
 
@@ -83,6 +99,11 @@ const PlantsTable = () => {
         });
 
         setTimeSeriesData(newTimeSeriesData);
+
+        // Cargar datos de alarmas
+        const alarms = await loadAlarmsData();
+        setAlarmsData(alarms);
+
       } else {
         setError(result.error || 'Error al cargar datos');
       }
@@ -113,18 +134,16 @@ const PlantsTable = () => {
       avgMecDispo: totalMecDispo,
       avgDispoElec: 0,
       avgDispoMec: 0,
-      totalAlarms: 0
+      totalAlarms: alarmsData.totalAlarms || 0
     };
 
     const totals = plantsData.reduce((acc, plant) => {
       acc.totalDispoElec += plant.dispoElec || 0;
       acc.totalDispoMec += plant.dispoMec || 0;
-      acc.totalAlarms += 0;
       return acc;
     }, {
       totalDispoElec: 0,
-      totalDispoMec: 0,
-      totalAlarms: 0
+      totalDispoMec: 0
     });
 
     return {
@@ -136,7 +155,7 @@ const PlantsTable = () => {
       avgMecDispo: totalMecDispo,
       avgDispoElec: totals.totalDispoElec / plantsData.length,
       avgDispoMec: totals.totalDispoMec / plantsData.length,
-      totalAlarms: totals.totalAlarms
+      totalAlarms: alarmsData.totalAlarms || 0
     };
   };
 
@@ -286,7 +305,7 @@ const PlantsTable = () => {
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-xs font-bold text-primary">
-              {percentage.toFixed(0)}%
+              {percentage % 1 === 0 ? percentage.toFixed(0) : percentage.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -296,12 +315,43 @@ const PlantsTable = () => {
   };
 
   // Componente para la celda de rentabilidad
-  const ProfitabilityCell = ({ value }) => (
-    <div className="text-center p-2">
-      <div className="inline-flex items-center justify-center px-3 py-1 bg-header-table rounded-lg">
-        <span className="text-sm font-semibold">
-          {Math.round(value)}€
-        </span>
+  const ProfitabilityCell = ({ value }) => {
+    // Formatear rentabilidad con 2 decimales mínimo
+    const formatProfitability = (val) => {
+      if (val === null || val === undefined || isNaN(val)) return '0.00';
+
+      // Si el valor es muy pequeño, mostrar al menos 2 decimales
+      if (Math.abs(val) < 1) {
+        return val.toFixed(2);
+      }
+
+      // Si es >= 1, mostrar sin decimales
+      return Math.round(val).toString();
+    };
+
+    return (
+      <div className="text-center p-2">
+        <div className="inline-flex items-center justify-center px-3 py-1 bg-header-table rounded-lg">
+          <span className="text-sm font-semibold">
+            {formatProfitability(value)}€
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Componente para celdas de alarmas
+  const AlarmCell = ({ alarmCount, isTotal = false }) => (
+    <div className="text-center">
+      <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${alarmCount > 0
+          ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+          : 'bg-header-table'
+        }`}>
+        <span className="text-sm font-bold">{alarmCount}</span>
+      </div>
+      <div className="text-xs text-secondary mt-1">
+        {alarmCount === 0 ? 'Sin alertas' :
+          alarmCount === 1 ? 'Alerta' : `Alertas`}
       </div>
     </div>
   );
@@ -413,12 +463,7 @@ const PlantsTable = () => {
                   />
                 </td>
                 <td className="p-4">
-                  <div className="text-center">
-                    <div className="inline-flex items-center justify-center w-8 h-8 bg-header-table rounded-full">
-                      <span className="text-sm font-bold">{totals.totalAlarms}</span>
-                    </div>
-                    <div className="text-xs text-secondary mt-1">Alertas</div>
-                  </div>
+                  <AlarmCell alarmCount={totals.totalAlarms} isTotal={true} />
                 </td>
               </tr>
 
@@ -497,12 +542,9 @@ const PlantsTable = () => {
                     />
                   </td>
                   <td className="p-4">
-                    <div className="text-center">
-                      <div className="inline-flex items-center justify-center w-8 h-8 bg-header-table rounded-full">
-                        <span className="text-sm font-bold">0</span>
-                      </div>
-                      <div className="text-xs text-secondary mt-1">Sin alertas</div>
-                    </div>
+                    <AlarmCell
+                      alarmCount={alarmsData.plantAlarms?.[plant.name]?.length || 0}
+                    />
                   </td>
                 </tr>
               ))}

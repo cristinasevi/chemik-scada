@@ -1,4 +1,3 @@
-// src/app/api/timeseries-data/route.js
 import { InfluxDB } from '@influxdata/influxdb-client';
 
 const url = process.env.INFLUXDB_URL || 'http://localhost:8086';
@@ -9,14 +8,14 @@ const influxDB = new InfluxDB({ url, token });
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const metric = searchParams.get('metric'); // 'power', 'energy', 'irradiance', 'irradiation', 'profitability', 'elec_dispo'
+  const metric = searchParams.get('metric'); // 'power', 'energy', 'irradiance', 'irradiation', 'profitability', 'elec_dispo', 'pr'
   const plant = searchParams.get('plant'); // 'LAMAJA', 'RETAMAR', or 'total'
   const hours = searchParams.get('hours') || '24'; // Período en horas
-  
+
   try {
     const queryApi = influxDB.getQueryApi(org);
     let query = '';
-    
+
     switch (metric) {
       case 'power':
         if (plant === 'total') {
@@ -46,7 +45,7 @@ export async function GET(request) {
           `;
         }
         break;
-        
+
       case 'energy':
         if (plant === 'total') {
           query = `
@@ -75,7 +74,7 @@ export async function GET(request) {
           `;
         }
         break;
-        
+
       case 'irradiance':
         if (plant === 'total') {
           query = `
@@ -104,7 +103,7 @@ export async function GET(request) {
           `;
         }
         break;
-        
+
       case 'irradiation':
         if (plant === 'total') {
           query = `
@@ -133,8 +132,9 @@ export async function GET(request) {
           `;
         }
         break;
-        
+
       case 'profitability':
+        // ✅ QUERIES CORREGIDAS PARA RENTABILIDAD
         if (plant === 'total') {
           query = `
             from(bucket: "PV")
@@ -151,6 +151,7 @@ export async function GET(request) {
               }))
               |> keep(columns: ["_time","suma"])
               |> filter(fn: (r) => r.suma >= 0.0)
+              |> cumulativeSum(columns: ["suma"])
           `;
         } else {
           query = `
@@ -162,10 +163,11 @@ export async function GET(request) {
               |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
               |> map(fn: (r) => ({ r with _value: r._value / 1000.0 }))
               |> filter(fn: (r) => r._value >= 0.0)
+              |> cumulativeSum()
           `;
         }
         break;
-        
+
       case 'elec_dispo':
         if (plant === 'total') {
           query = `
@@ -205,47 +207,126 @@ export async function GET(request) {
           `;
         }
         break;
-        
+
+      case 'pr':
+        if (plant === 'total') {
+          query = `
+            data1 = from(bucket: "PV")
+              |> range(start: -${hours}h)
+              |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+              |> filter(fn: (r) => r["type"] == "calculado")
+              |> filter(fn: (r) => r["_field"] == "H_PoA")
+              |> keep(columns: ["_time", "PVO_Plant", "_value"])
+              |> pivot(rowKey: ["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+              |> cumulativeSum(columns: ["LAMAJA", "RETAMAR"])
+              |> map(fn: (r) => ({
+                  r with
+                  H_POA: (r.LAMAJA*4400.0 + r.RETAMAR*3300.0)/7700.0
+              }))
+              |> keep(columns: ["_time", "H_POA"])
+
+            data2 = from(bucket: "PV")
+              |> range(start: -${hours}h)
+              |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
+              |> filter(fn: (r) => r["type"] == "calculado")
+              |> filter(fn: (r) => r["_field"] == "EPV")
+              |> keep(columns: ["_time", "PVO_Plant", "_value"])
+              |> pivot(rowKey: ["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
+              |> cumulativeSum(columns: ["LAMAJA", "RETAMAR"])
+              |> map(fn: (r) => ({
+                  r with
+                  E_PV: r.LAMAJA + r.RETAMAR
+              }))
+              |> keep(columns: ["_time", "E_PV"])
+
+            join(
+              tables: {key1: data1, key2: data2},
+              on: ["_time"],
+              method: "inner"
+            )
+            |> map(fn: (r) => ({
+                r with
+                PR: r.E_PV/(7700.0*r.H_POA)*100.0
+            }))
+            |> keep(columns: ["_time", "PR"])
+          `;
+        } else if (plant === 'LAMAJA') {
+          query = `
+            from(bucket: "PV")
+              |> range(start: -${hours}h)
+              |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA")
+              |> filter(fn: (r) => r["type"] == "calculado")
+              |> filter(fn: (r) => r["_field"] == "H_PoA" or r["_field"] == "EPV")
+              |> cumulativeSum()  
+              |> keep(columns: ["_time","_field", "_value"])
+              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+              |> map(fn: (r) => ({
+                 r with
+                  PR: r.EPV/(4400.0*r.H_PoA)*100.0
+              }))  
+              |> keep(columns: ["_time", "PR"])
+          `;
+        } else if (plant === 'RETAMAR') {
+          query = `
+            from(bucket: "PV")
+              |> range(start: -${hours}h)
+              |> filter(fn: (r) => r["PVO_Plant"] == "RETAMAR")
+              |> filter(fn: (r) => r["type"] == "calculado")
+              |> filter(fn: (r) => r["_field"] == "H_PoA" or r["_field"] == "EPV")
+              |> cumulativeSum()  
+              |> keep(columns: ["_time","_field", "_value"])
+              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+              |> map(fn: (r) => ({
+                 r with
+                  PR: r.EPV/(3300.0*r.H_PoA)*100.0
+              }))
+              |> keep(columns: ["_time", "PR"])
+          `;
+        }
+        break;
+
       default:
         return Response.json({
           success: false,
-          error: 'Métrica no válida. Usa: power, energy, irradiance, irradiation, profitability, elec_dispo'
+          error: 'Métrica no válida. Usa: power, energy, irradiance, irradiation, profitability, elec_dispo, pr'
         }, { status: 400 });
     }
 
     const timeSeriesData = [];
-    
+
     await new Promise((resolve, reject) => {
       queryApi.queryRows(query, {
         next(row, tableMeta) {
           const rowData = tableMeta.toObject(row);
-          let value = plant === 'total' ? 
-            (metric === 'elec_dispo' ? rowData.AvGen : rowData.suma) : 
-            rowData._value;
-          
+          let value = plant === 'total' ?
+            (metric === 'elec_dispo' ? rowData.AvGen :
+              metric === 'pr' ? rowData.PR :
+                rowData.suma) :
+            (metric === 'pr' ? rowData.PR : rowData._value);
+
           // Para potencia, convertir kW a MW
           if (metric === 'power') {
             value = value / 1000.0;
           }
-          
+
           // Para energía, convertir kWh a MWh  
           if (metric === 'energy') {
             value = value / 1000.0;
           }
-          
-          // Para rentabilidad, ya está convertida en la query
+
+          // ✅ Para rentabilidad en series temporales, ya está convertida en la query
           // No aplicar conversión adicional para profitability
-          
+
           // Para irradiación, NO convertir - ya está en kWh/m²
           // if (metric === 'irradiation') {
           //   value = value / 1000.0;
           // }
-          
+
           // NO eliminar valores pequeños negativos, solo valores extremadamente pequeños (< 0.0001)
           if (Math.abs(value) < 0.0001) {
             value = 0;
           }
-          
+
           timeSeriesData.push({
             time: rowData._time,
             value: Number(value.toFixed(3)),
