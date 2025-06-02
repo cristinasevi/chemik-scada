@@ -38,7 +38,7 @@ const Map = () => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.removeLayer(marker);
         }
-      } catch (e) {}
+      } catch (e) { }
     });
     markersRef.current = [];
 
@@ -47,7 +47,7 @@ const Map = () => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.removeLayer(label);
         }
-      } catch (e) {}
+      } catch (e) { }
     });
     labelsRef.current = [];
   };
@@ -66,7 +66,7 @@ const Map = () => {
 
       try {
         // Marcador principal
-        const icon = createCustomIcon(station.status);
+        const icon = createCustomIcon(station.data?.AvEle);
         const marker = window.L.marker(station.coordinates, { icon })
           .addTo(mapInstanceRef.current);
 
@@ -93,29 +93,30 @@ const Map = () => {
     });
   };
 
-  const createCustomIcon = (status) => {
-    const colors = {
-      online: '#10b981',
-      warning: '#f59e0b',
-      alert: '#ef4444',
-      offline: '#6b7280'
-    };
+  const createCustomIcon = (avEle) => {
+    let color = '#6b7280'; // gris por defecto
 
-    const color = colors[status] || colors.offline;
+    if (avEle >= 90) {
+      color = '#10b981'; // verde
+    } else if (avEle >= 50) {
+      color = '#f59e0b'; // amarillo
+    } else if (avEle >= 0) {
+      color = '#ef4444'; // rojo
+    }
 
     return window.L.divIcon({
       html: `
-        <div style="
-          width: 20px;
-          height: 20px;
-          background-color: ${color};
-          border: 3px solid white;
-          border-radius: 50%;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-          position: relative;
-          z-index: 1000;
-        "></div>
-      `,
+      <div style="
+        width: 20px;
+        height: 20px;
+        background-color: ${color};
+        border: 3px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        position: relative;
+        z-index: 1000;
+      "></div>
+    `,
       className: 'custom-marker',
       iconSize: [26, 26],
       iconAnchor: [13, 13]
@@ -227,12 +228,12 @@ const Map = () => {
 
   const initializeMap = () => {
     if (!mapRef.current || !window.L) return;
-    
+
     // Si ya existe un mapa, limpiarlo
     if (mapInstanceRef.current) {
       try {
         mapInstanceRef.current.remove();
-      } catch (e) {}
+      } catch (e) { }
       mapInstanceRef.current = null;
     }
 
@@ -258,7 +259,7 @@ const Map = () => {
 
       mapInstanceRef.current = map;
       setIsLoaded(true);
-      
+
       // Cargar datos después de inicializar
       loadStationsData();
 
@@ -295,7 +296,7 @@ const Map = () => {
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove();
-        } catch (e) {}
+        } catch (e) { }
         mapInstanceRef.current = null;
       }
     };
@@ -346,7 +347,7 @@ const Map = () => {
             </div>
           </div>
         )}
-        
+
         <div
           ref={mapRef}
           className="w-full h-96 bg-gray-100"

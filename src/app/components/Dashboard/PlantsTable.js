@@ -251,8 +251,7 @@ const PlantsTable = () => {
   };
 
   // Componente para medidores circulares
-  const CircularGauge = ({ value, label, color = 'green' }) => {
-    // Si el valor es null o undefined, mostrar vacío
+  const CircularGauge = ({ value, label }) => {
     if (value === null || value === undefined) {
       return (
         <div className="flex flex-col items-center">
@@ -267,16 +266,18 @@ const PlantsTable = () => {
     }
 
     const percentage = Math.min(Math.max(value, 0), 100);
-    const circumference = 2 * Math.PI * 40;
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
-    const colors = {
-      green: '#10b981',
-      yellow: '#f59e0b',
-      red: '#ef4444',
-      blue: '#3b82f6',
-      gray: '#6b7280'
-    };
+    let dynamicColor;
+    if (percentage >= 90) {
+      dynamicColor = '#10b981'; // verde
+    } else if (percentage >= 50) {
+      dynamicColor = '#f59e0b'; // amarillo
+    } else {
+      dynamicColor = '#ef4444'; // rojo
+    }
 
     return (
       <div className="flex flex-col items-center">
@@ -285,16 +286,16 @@ const PlantsTable = () => {
             <circle
               cx="50"
               cy="50"
-              r="40"
-              stroke="#f3f4f6"
+              r={radius}
+              stroke="#e5e7eb"
               strokeWidth="6"
               fill="transparent"
             />
             <circle
               cx="50"
               cy="50"
-              r="40"
-              stroke={colors[color]}
+              r={radius}
+              stroke={dynamicColor}
               strokeWidth="6"
               fill="transparent"
               strokeDasharray={circumference}
@@ -344,8 +345,8 @@ const PlantsTable = () => {
   const AlarmCell = ({ alarmCount, isTotal = false }) => (
     <div className="text-center">
       <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${alarmCount > 0
-          ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-          : 'bg-header-table'
+        ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+        : 'bg-header-table'
         }`}>
         <span className="text-sm font-bold">{alarmCount}</span>
       </div>
@@ -447,19 +448,16 @@ const PlantsTable = () => {
                 <td className="p-4">
                   <CircularGauge
                     value={totals.avgElecDispo}
-                    color="green"
                   />
                 </td>
                 <td className="p-4">
                   <CircularGauge
                     value={totals.avgMecDispo}
-                    color="green"
                   />
                 </td>
                 <td className="p-4">
                   <CircularGauge
                     value={totalPR}
-                    color="green"
                   />
                 </td>
                 <td className="p-4">
@@ -518,27 +516,16 @@ const PlantsTable = () => {
                   <td className="p-4">
                     <CircularGauge
                       value={plant.dispoElec}
-                      color="green"
                     />
                   </td>
                   <td className="p-4">
                     <CircularGauge
                       value={plant.dispoMec}
-                      color={
-                        plant.dispoMec === null || plant.dispoMec === undefined
-                          ? "gray"
-                          : plant.dispoMec >= 90
-                            ? "green"
-                            : plant.dispoMec >= 70
-                              ? "yellow"
-                              : "red"
-                      }
                     />
                   </td>
                   <td className="p-4">
                     <CircularGauge
                       value={plant.pr}
-                      color="green"
                     />
                   </td>
                   <td className="p-4">
