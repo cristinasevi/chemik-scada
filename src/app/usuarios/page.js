@@ -78,13 +78,13 @@ const UsersPage = () => {
         }, 3000); // Se oculta después de 3 segundos
     };
 
-    // Datos de ejemplo - en un caso real vendría de una API
+    // Datos de ejemplo actualizados con los nuevos usuarios
     const mockUsers = [
         {
             id: 1,
-            name: 'Juan García',
-            username: 'juan.garcia@chemik.com',
-            email: 'juan.garcia@chemik.com',
+            name: 'Admnistrador',
+            username: 'admin@chemik.es',
+            email: 'admin@chemik.es',
             role: 'admin',
             notifyAlarms: true,
             assignedPlants: ['LAMAJA', 'RETAMAR'],
@@ -92,24 +92,44 @@ const UsersPage = () => {
         },
         {
             id: 2,
-            name: 'María López',
-            username: 'maria.lopez@chemik.com',
-            email: 'maria.lopez@chemik.com',
-            role: 'cliente',
-            notifyAlarms: false,
-            assignedPlants: ['LAMAJA'],
-            permissions: ['dashboard', 'plants', 'reports'],
+            name: 'Rubén Santos',
+            username: 'ruben.santos@chemik.es',
+            email: 'ruben.santos@chemik.es',
+            role: 'admin',
+            notifyAlarms: true,
+            assignedPlants: ['LAMAJA', 'RETAMAR'],
+            permissions: ['dashboard', 'users', 'plants', 'reports', 'settings'],
         },
         {
             id: 3,
-            name: 'Carlos Ruiz',
-            username: 'carlos.ruiz@chemik.com',
-            email: 'carlos.ruiz@chemik.com',
+            name: 'Javi Gómez',
+            username: 'jjgomez@chemik.es',
+            email: 'jjgomez@chemik.es',
+            role: 'admin',
+            notifyAlarms: true,
+            assignedPlants: ['LAMAJA', 'RETAMAR'],
+            permissions: ['dashboard', 'users', 'plants', 'reports', 'settings'],
+        },
+        {
+            id: 4,
+            name: 'Óscar Ruiz',
+            username: 'oscar.ruiz@chemik.es',
+            email: 'oscar.ruiz@chemik.es',
+            role: 'admin',
+            notifyAlarms: true,
+            assignedPlants: ['LAMAJA', 'RETAMAR'],
+            permissions: ['dashboard', 'users', 'plants', 'reports', 'settings'],
+        },
+        {
+            id: 5,
+            name: 'Cliente',
+            username: 'cliente@chemik.es',
+            email: 'cliente@chemik.es',
             role: 'cliente',
             notifyAlarms: false,
-            assignedPlants: ['RETAMAR'],
-            permissions: ['dashboard'],
-        }
+            assignedPlants: ['LAMAJA', 'RETAMAR'],
+            permissions: ['dashboard', 'plants', 'reports', 'settings'],
+        },
     ];
 
     useEffect(() => {

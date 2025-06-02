@@ -43,35 +43,35 @@ const LoginPage = () => {
   // Usuarios válidos (en un caso real, esto vendría de una API)
   const validUsers = [
     {
-      username: 'admin@chemik.com',
-      password: 'ChemikAdmin2025!',
+      username: 'admin@chemik.es',
+      password: 'chemik123',
       name: 'Administrador',
       role: 'admin'
     },
     {
-      username: 'juan.garcia@chemik.com',
-      password: 'JuanGarcia#2025',
-      name: 'Juan García',
+      username: 'ruben.santos@chemik.es',
+      password: 'chemik123',
+      name: 'Rubén Santos',
       role: 'admin'
     },
     {
-      username: 'maria.lopez@chemik.com',
-      password: 'MariaL0pez$2025',
-      name: 'María López',
-      role: 'cliente'
+      username: 'jjgomez@chemik.es',
+      password: 'chemik123',
+      name: 'Javi Gómez',
+      role: 'admin'
     },
     {
-      username: 'carlos.ruiz@chemik.com',
-      password: 'CarlosR&2025!',
-      name: 'Carlos Ruiz',
-      role: 'cliente'
+      username: 'oscar.ruiz@chemik.es',
+      password: 'chemik123',
+      name: 'Óscar Ruiz',
+      role: 'admin'
     },
     {
-      username: 'test@chemik.com',
-      password: 'TestUser123!',
-      name: 'Usuario de Prueba',
+      username: 'cliente@chemik.es',
+      password: 'chemik123',
+      name: 'Cliente',
       role: 'cliente'
-    }
+    },
   ];
 
   // Validar formulario
@@ -231,7 +231,7 @@ const LoginPage = () => {
                     className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-background text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
                       errors.username ? 'border-red-500' : 'border-custom'
                     }`}
-                    placeholder="tu.email@chemik.com"
+                    placeholder="usuario@chemik.es"
                     disabled={isLoading}
                     autoComplete="username"
                   />

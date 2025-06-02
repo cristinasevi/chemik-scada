@@ -15,11 +15,11 @@ export const useAuth = () => {
 
 // Usuarios válidos
 const validUsers = [
-  { username: 'admin@chemik.com', password: 'ChemikAdmin2025!', name: 'Administrador', role: 'admin' },
-  { username: 'juan.garcia@chemik.com', password: 'JuanGarcia#2025', name: 'Juan García', role: 'admin' },
-  { username: 'maria.lopez@chemik.com', password: 'MariaL0pez$2025', name: 'María López', role: 'cliente' },
-  { username: 'carlos.ruiz@chemik.com', password: 'CarlosR&2025!', name: 'Carlos Ruiz', role: 'cliente' },
-  { username: 'test@chemik.com', password: 'TestUser123!', name: 'Usuario de Prueba', role: 'cliente' }
+  { username: 'admin@chemik.es', password: 'chemik123', name: 'Administrador', role: 'admin' },
+  { username: 'ruben.santos@chemik.es', password: 'chemik123', name: 'Rubén Santos', role: 'admin' },
+  { username: 'jjgomez@chemik.es', password: 'chemik123', name: 'Javi Gómez', role: 'admin' },
+  { username: 'oscar.ruiz@chemik.es', password: 'chemik123', name: 'Óscar Ruiz', role: 'admin' },
+  { username: 'cliente@chemik.es', password: 'chemik123', name: 'Cliente', role: 'cliente' }
 ];
 
 export const AuthProvider = ({ children }) => {
