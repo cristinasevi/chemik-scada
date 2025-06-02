@@ -25,7 +25,7 @@ export async function GET(request) {
               |> filter(fn: (r) => r["PVO_Plant"] == "LAMAJA" or r["PVO_Plant"] == "RETAMAR")
               |> filter(fn: (r) => r["PVO_id"] == "66KV" or r["PVO_id"] == "CONTADOR01")
               |> filter(fn: (r) => r["_field"] == "P")
-              |> aggregateWindow(every: 20m, fn: mean, createEmpty: false)
+              |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)
               |> keep(columns: ["_time","PVO_Plant", "_value"])
               |> pivot(rowKey:["_time"], columnKey: ["PVO_Plant"], valueColumn: "_value")
               |> map(fn: (r) => ({
@@ -41,7 +41,7 @@ export async function GET(request) {
               |> filter(fn: (r) => r["PVO_Plant"] == "${plant}")
               |> filter(fn: (r) => r["PVO_id"] == "66KV" or r["PVO_id"] == "CONTADOR01")
               |> filter(fn: (r) => r["_field"] == "P")
-              |> aggregateWindow(every: 20m, fn: mean, createEmpty: false)
+              |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)
           `;
         }
         break;
@@ -245,8 +245,8 @@ export async function GET(request) {
               method: "inner"
             )
             |> map(fn: (r) => ({
-                r with
-                PR: r.E_PV/(7700.0*r.H_POA)*100.0
+              r with
+              PR: r.E_PV/([CAPACIDAD_TOTAL]*r.H_POA)*100.0
             }))
             |> keep(columns: ["_time", "PR"])
           `;

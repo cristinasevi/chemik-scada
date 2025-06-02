@@ -163,7 +163,7 @@ export async function GET(request) {
         |> last()
     `;
 
-    // ✅ QUERY CORREGIDA PARA PR (PERFORMANCE RATIO) TOTAL
+    // ✅ QUERY CORREGIDA PARA PR (PERFORMANCE RATIO) TOTAL - REPLICANDO GRAFANA EXACTO
     const totalPRQuery = `
       data1 = from(bucket: "PV")
         |> range(start: -24h)
@@ -199,8 +199,8 @@ export async function GET(request) {
         method: "inner"
       )
       |> map(fn: (r) => ({
-          r with
-          PR: r.E_PV/(7700.0*r.H_POA)*100.0
+        r with
+        PR: r.E_PV/(7700.0*r.H_POA)*100.0
       }))
       |> keep(columns: ["_time", "PR"])
       |> last()
@@ -445,7 +445,7 @@ export async function GET(request) {
     try {
       console.log('🔍 Ejecutando query de rentabilidad total corregida...');
       console.log('📋 Query:', totalProfitabilityQuery);
-      
+
       let dataCount = 0;
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalProfitabilityQuery, {
@@ -459,7 +459,7 @@ export async function GET(request) {
               time: rowData._time,
               allFields: rowData
             });
-            
+
             // El resultado de sum() viene en _value
             totalProfitability = rowData._value || rowData.suma || rowData.mean || 0;
           },
@@ -519,25 +519,37 @@ export async function GET(request) {
       console.error('Exception en query de disposición mecánica total:', error);
     }
 
-    // PR (Performance Ratio) total
+    // ✅ PR (Performance Ratio) total - CON LOGGING
     try {
+      console.log('🔍 Ejecutando query de PR total corregida...');
+      let dataCount = 0;
       await new Promise((resolve, reject) => {
         queryApi.queryRows(totalPRQuery, {
           next(row, tableMeta) {
             const rowData = tableMeta.toObject(row);
+            dataCount++;
+            console.log(`✅ DATOS PR TOTAL [${dataCount}]:`, {
+              PR: rowData.PR,
+              E_PV: rowData.E_PV,
+              H_POA: rowData.H_POA,
+              time: rowData._time,
+              calculation: `${rowData.E_PV}/(7700.0*${rowData.H_POA})*100 = ${rowData.PR}`,
+              allFields: rowData
+            });
             totalPR = rowData.PR || 0;
           },
           error(error) {
-            console.error('Error en query de PR total:', error);
+            console.error('❌ Error en query de PR total:', error);
             resolve();
           },
           complete() {
+            console.log(`🏁 Query PR total completada. Filas: ${dataCount}, Valor final: ${totalPR}`);
             resolve();
           }
         });
       });
     } catch (error) {
-      console.error('Exception en query de PR total:', error);
+      console.error('💥 Exception en query de PR total:', error);
     }
 
     // EJECUTAR QUERIES INDIVIDUALES PARA CADA PLANTA
@@ -643,7 +655,7 @@ export async function GET(request) {
       // ✅ RENTABILIDAD INDIVIDUAL - CON LOGGING MEJORADO
       try {
         console.log(`🔍 Ejecutando query de rentabilidad CORREGIDA para ${plantName}...`);
-        
+
         let dataCount = 0;
         await new Promise((resolve, reject) => {
           queryApi.queryRows(createProfitabilityQueryForPlant(plantName), {
@@ -656,11 +668,11 @@ export async function GET(request) {
                 time: rowData._time,
                 allFields: rowData
               });
-              
+
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
-              
+
               // El resultado de sum() viene en _value
               plantsData.get(plantName).profitability = rowData._value || rowData.mean || 0;
             },
@@ -746,28 +758,40 @@ export async function GET(request) {
         }
       }
 
-      // PR (Performance Ratio) individual
+      // ✅ PR (Performance Ratio) individual - CON LOGGING
       try {
+        console.log(`🔍 Ejecutando query de PR para ${plantName}...`);
+        let dataCount = 0;
         await new Promise((resolve, reject) => {
           queryApi.queryRows(createPRQueryForPlant(plantName), {
             next(row, tableMeta) {
               const rowData = tableMeta.toObject(row);
+              dataCount++;
+              console.log(`✅ DATOS PR ${plantName} [${dataCount}]:`, {
+                PR: rowData.PR,
+                EPV: rowData.EPV,
+                H_PoA: rowData.H_PoA,
+                time: rowData._time,
+                allFields: rowData
+              });
               if (!plantsData.has(plantName)) {
                 plantsData.set(plantName, {});
               }
               plantsData.get(plantName).pr = rowData.PR || 0;
             },
             error(error) {
-              console.error(`Error en query de PR para ${plantName}:`, error);
+              console.error(`❌ Error en query de PR para ${plantName}:`, error);
               resolve();
             },
             complete() {
+              const finalValue = plantsData.get(plantName)?.pr || 0;
+              console.log(`🏁 Query PR ${plantName} completada. Filas: ${dataCount}, Valor final: ${finalValue}`);
               resolve();
             }
           });
         });
       } catch (error) {
-        console.error(`Exception en query de PR para ${plantName}:`, error);
+        console.error(`💥 Exception en query de PR para ${plantName}:`, error);
       }
     }
 
@@ -812,15 +836,20 @@ export async function GET(request) {
       totalMecDispo = retamarMecDispo;
     }
 
-    // ✅ FALLBACK CORREGIDO PARA PR
+    // ✅ FALLBACK CORREGIDO PARA PR - CON LOGGING
     if (totalPR === 0) {
+      console.log('⚠️ PR total es 0, calculando desde plantas individuales...');
       // Para PR, usar fórmula ponderada si hay datos individuales
       const lamajaPR = plantsData.get('LAMAJA')?.pr || 0;
       const retamarPR = plantsData.get('RETAMAR')?.pr || 0;
 
+      console.log(`PR individual LAMAJA: ${lamajaPR}%`);
+      console.log(`PR individual RETAMAR: ${retamarPR}%`);
+
       if (lamajaPR > 0 || retamarPR > 0) {
         // Usar el promedio ponderado correcto con 7700.0
         totalPR = (lamajaPR * 4400.0 + retamarPR * 3300.0) / 7700.0;
+        console.log(`🔧 PR total calculado (fallback): ${totalPR}%`);
       }
     }
 
@@ -836,16 +865,22 @@ export async function GET(request) {
     // Si la rentabilidad total es 0, calcular desde plantas individuales
     if (totalProfitability === 0) {
       console.log('⚠️ Rentabilidad total es 0, calculando desde plantas...');
-      
+
       // Sumar rentabilidad de plantas individuales
       plantsData.forEach((data) => {
         totalProfitability += data.profitability || 0;
       });
-      
+
       console.log('🔧 Rentabilidad total desde plantas:', totalProfitability);
     }
 
     console.log('✅ Rentabilidad final total:', totalProfitability);
+
+    // LOGGING FINAL DE PR
+    console.log('=== RESUMEN FINAL PR ===');
+    console.log(`PR total final: ${totalPR}%`);
+    console.log(`PR LAMAJA: ${plantsData.get('LAMAJA')?.pr || 0}%`);
+    console.log(`PR RETAMAR: ${plantsData.get('RETAMAR')?.pr || 0}%`);
 
     // EJECUTAR QUERY DE DATOS GEOGRÁFICOS
     try {
