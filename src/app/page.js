@@ -1,7 +1,7 @@
 import Map from "./components/Dashboard/Map";
 import PlantsTable from "./components/Dashboard/PlantsTable";
-import PowerChart from './components/PowerChart';
-import MonthlyProductionChart from './components/MonthlyProductionChart';
+import PowerChart from './components/Dashboard/PowerChart';
+import MonthlyProductionChart from './components/Dashboard/MonthlyProductionChart';
 
 export default function Home() {
   return (

@@ -201,7 +201,7 @@ export async function GET(request) {
         PR: r.E_PV/(7700.0*r.H_POA)*100.0
       }))
       |> keep(columns: ["_time", "PR"])
-      |> last()
+      |> last(column: "PR")
     `;
 
     const geoDataQuery = `
