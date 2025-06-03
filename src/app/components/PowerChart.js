@@ -210,37 +210,37 @@ const PowerChart = ({ height = "400px" }) => {
                   <td className="px-1 py-0.5">
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-px bg-green-500"></div>
-                      <span className="text-gray-700 dark:text-gray-300 text-xs">La Maja</span>
+                      <span className="text-primary text-xs">La Maja</span>
                     </div>
                   </td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.lamaja.min)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.lamaja.mean)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.lamaja.max)}</td>
-                  <td className="text-right text-gray-800 dark:text-gray-200 px-1 py-0.5 text-xs font-medium">{formatValue(stats.lamaja.last)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.lamaja.min)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.lamaja.mean)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.lamaja.max)}</td>
+                  <td className="text-right text-primary px-1 py-0.5 text-xs font-medium">{formatValue(stats.lamaja.last)}</td>
                 </tr>
                 <tr>
                   <td className="px-1 py-0.5">
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-px bg-yellow-500"></div>
-                      <span className="text-gray-700 dark:text-gray-300 text-xs">Retamar</span>
+                      <span className="text-primary text-xs">Retamar</span>
                     </div>
                   </td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.retamar.min)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.retamar.mean)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.retamar.max)}</td>
-                  <td className="text-right text-gray-800 dark:text-gray-200 px-1 py-0.5 text-xs font-medium">{formatValue(stats.retamar.last)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.retamar.min)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.retamar.mean)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.retamar.max)}</td>
+                  <td className="text-right text-primary px-1 py-0.5 text-xs font-medium">{formatValue(stats.retamar.last)}</td>
                 </tr>
                 <tr>
                   <td className="px-1 py-0.5">
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-px bg-blue-500"></div>
-                      <span className="text-gray-700 dark:text-gray-300 text-xs">Total</span>
+                      <span className="text-primary text-xs">Total</span>
                     </div>
                   </td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.total.min)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.total.mean)}</td>
-                  <td className="text-right text-gray-600 dark:text-gray-400 px-2 py-0.5 text-xs">{formatValue(stats.total.max)}</td>
-                  <td className="text-right text-gray-800 dark:text-gray-200 px-1 py-0.5 text-xs font-medium">{formatValue(stats.total.last)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.total.min)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.total.mean)}</td>
+                  <td className="text-right text-secondary px-2 py-0.5 text-xs">{formatValue(stats.total.max)}</td>
+                  <td className="text-right text-primary px-1 py-0.5 text-xs font-medium">{formatValue(stats.total.last)}</td>
                 </tr>
               </tbody>
             </table>
@@ -258,20 +258,19 @@ const PowerChart = ({ height = "400px" }) => {
             >
               <CartesianGrid 
                 strokeDasharray="3 3" 
-                stroke="#e5e7eb" 
-                className="dark:stroke-gray-600"
+                stroke="var(--text-muted)"
               />
               <XAxis 
                 dataKey="time" 
-                stroke="#6b7280"
+                stroke="var(--text-muted)"
                 fontSize={12}
                 interval="preserveStartEnd"
-                tick={{ fill: '#6b7280' }}
-                axisLine={{ stroke: '#6b7280' }}
-                tickLine={{ stroke: '#6b7280' }}
+                tick={{ fill: 'var(--text-muted)' }}
+                axisLine={{ stroke: 'var(--text-muted)' }}
+                tickLine={{ stroke: 'var(--text-muted)' }}
               />
               <YAxis 
-                stroke="#6b7280"
+                stroke="var(--text-muted)"
                 fontSize={12}
                 tickFormatter={(value) => {
                   if (Math.abs(value) >= 1000) {
@@ -279,22 +278,23 @@ const PowerChart = ({ height = "400px" }) => {
                   }
                   return `${value.toFixed(0)} kW`;
                 }}
-                tick={{ fill: '#6b7280' }}
-                axisLine={{ stroke: '#6b7280' }}
-                tickLine={{ stroke: '#6b7280' }}
+                tick={{ fill: 'var(--text-muted)' }}
+                axisLine={{ stroke: 'var(--text-muted)' }}
+                tickLine={{ stroke: 'var(--text-muted)' }}
                 domain={[0, 6000]} // Rango de 0 kW a 6 MW (6000 kW)
                 ticks={[0, 1000, 2000, 3000, 4000, 5000, 6000]} // Marcas específicas
               />
               <Tooltip 
                 formatter={formatTooltip}
-                labelStyle={{ color: '#374151' }}
+                labelStyle={{ color: 'var(--text-primary)' }}
                 contentStyle={{ 
                   backgroundColor: 'white', 
-                  border: '1px solid #e5e7eb',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '6px',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  color: 'var(--text-primary)'
                 }}
-                cursor={{ stroke: '#d1d5db', strokeWidth: 1, strokeDasharray: '3 3' }}
+                cursor={{ stroke: 'var(--border-color)', strokeWidth: 1, strokeDasharray: '3 3' }}
               />
               <Legend 
                 wrapperStyle={{ paddingTop: '20px' }}

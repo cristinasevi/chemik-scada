@@ -82,7 +82,7 @@ const UsersPage = () => {
     const mockUsers = [
         {
             id: 1,
-            name: 'Admnistrador',
+            name: 'Administrador',
             username: 'admin@chemik.es',
             email: 'admin@chemik.es',
             role: 'admin',
