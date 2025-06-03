@@ -134,7 +134,6 @@ export async function GET(request) {
         break;
 
       case 'profitability':
-        // ✅ QUERIES CORREGIDAS PARA RENTABILIDAD
         if (plant === 'total') {
           query = `
             from(bucket: "PV")
@@ -313,14 +312,6 @@ export async function GET(request) {
           if (metric === 'energy') {
             value = value / 1000.0;
           }
-
-          // ✅ Para rentabilidad en series temporales, ya está convertida en la query
-          // No aplicar conversión adicional para profitability
-
-          // Para irradiación, NO convertir - ya está en kWh/m²
-          // if (metric === 'irradiation') {
-          //   value = value / 1000.0;
-          // }
 
           // NO eliminar valores pequeños negativos, solo valores extremadamente pequeños (< 0.0001)
           if (Math.abs(value) < 0.0001) {
