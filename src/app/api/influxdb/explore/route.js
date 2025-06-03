@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
-const INFLUX_URL = process.env.INFLUXDB_URL || 'http://213.4.39.163:8086';
-const INFLUX_TOKEN = process.env.INFLUXDB_TOKEN || '0sGVviGogcFRVmIfvpRbc4VBG8vKU_hYRepoGThTUejr5XgE1pgy2H73-zJqqwwK0Ak2JF34Yq9J41PqtrebBw==';
-const INFLUX_ORG = process.env.INFLUXDB_ORG || '53e3d55b34f76d1a';
+const INFLUX_URL = process.env.INFLUXDB_URL;
+const INFLUX_TOKEN = process.env.INFLUXDB_TOKEN;
+const INFLUX_ORG = process.env.INFLUXDB_ORG;
 
 export async function POST(request) {
   try {
