@@ -209,3 +209,35 @@ select option {
 .dark .btn-delete-hover:hover {
   background-color: rgba(127, 29, 29, 0.2);
 }
+
+.badge-red {
+  background-color: #fee2e2;
+}
+
+.dark .badge-red {
+  background-color: #7f1d1d33;
+}
+
+.badge-yellow {
+  background-color: #fef9c3;
+}
+
+.dark .badge-yellow {
+  background-color: #713f1233;
+}
+
+.badge-green {
+  background-color: #d1fae5;
+}
+
+.dark .badge-green {
+  background-color: #064e3b33;
+}
+
+.badge-gray {
+  border-color: #d1d5db;
+}
+
+.dark .badge-gray {
+  border-color: #4b5563;
+}

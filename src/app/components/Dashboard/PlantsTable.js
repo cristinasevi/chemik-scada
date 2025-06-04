@@ -256,7 +256,7 @@ const PlantsTable = () => {
       return (
         <div className="flex flex-col items-center">
           <div className="relative w-16 h-16">
-            <div className="w-16 h-16 rounded-full border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full border-2 badge-gray flex items-center justify-center">
               <span className="text-xs text-gray-400">--</span>
             </div>
           </div>
@@ -345,7 +345,7 @@ const PlantsTable = () => {
   const AlarmCell = ({ alarmCount, isTotal = false }) => (
     <div className="text-center">
       <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${alarmCount > 0
-        ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+        ? 'badge-red text-red-600 dark:text-red-400'
         : 'bg-header-table'
         }`}>
         <span className="text-sm font-bold">{alarmCount}</span>

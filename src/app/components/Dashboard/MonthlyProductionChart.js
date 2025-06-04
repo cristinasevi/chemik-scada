@@ -15,18 +15,18 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
   const loadMonthlyData = async () => {
     try {
       setLoading(true);
-      
+
       // Obtener el primer y último día del mes actual
       const now = new Date();
       const currentDay = now.getDate();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       const totalDaysInMonth = endOfMonth.getDate();
-      
+
       // Formatear fechas para la API
       const startDate = startOfMonth.toISOString();
       const endDate = endOfMonth.toISOString();
-      
+
       // Cargar datos de ambas plantas
       const [lamajaResponse, retamarResponse] = await Promise.all([
         fetch(`/api/monthly-production-data?plant=LAMAJA&start=${startDate}&end=${endDate}`),
@@ -45,7 +45,7 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
       // Crear estructura de datos - SOLO hasta el día actual
       const daysToShow = currentDay;
       const dataMap = new Map();
-      
+
       // Inicializar solo los días que queremos mostrar
       for (let day = 1; day <= daysToShow; day++) {
         const dayString = day.toString().padStart(2, '0');
@@ -86,10 +86,10 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
       const calculateStats = (plantKey) => {
         const values = combinedData.map(d => d[plantKey]).filter(v => v > 0);
         if (values.length === 0) return { mean: 0, lastNotNull: 0 };
-        
+
         const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
         const lastNotNull = values[values.length - 1] || 0;
-        
+
         return { mean, lastNotNull };
       };
 
@@ -110,7 +110,7 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
 
   useEffect(() => {
     loadMonthlyData();
-    
+
     // Auto-refresh cada hora (datos diarios no cambian tan frecuentemente)
     const interval = setInterval(loadMonthlyData, 3600000);
     return () => clearInterval(interval);
@@ -118,22 +118,69 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
 
   // Función para renderizar labels en las barras
   const renderCustomBarLabel = (props) => {
-    const { x, y, width, height, value } = props;
-    
-    // Solo mostrar label si el valor es mayor que 0.1 MWh y la barra tiene altura suficiente
-    if (value < 0.1 || height < 30) return null;
-    
+    const { x, y, width, height, value, index } = props;
+
+    // Solo mostrar label si el valor es mayor que 0.1 MWh
+    if (value < 0.1) return null;
+
+    // Determinar si la barra es muy estrecha (menos de 40px de ancho)
+    const isNarrowBar = width < 40;
+
+    // Si la barra es muy estrecha, colocar el texto encima de la barra
+    if (isNarrowBar) {
+      return (
+        <text
+          x={x + width / 2}
+          y={y - 6} // Más separación para evitar cortes
+          fill="var(--text-primary)"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="11"
+          fontWeight="500" // Menos peso
+          style={{
+            textShadow: '1px 1px 2px rgba(0,0,0,0.6)', // Sombra más definida
+          }}
+        >
+          {value.toFixed(1)}
+        </text>
+      );
+    }
+
+    // Para barras anchas, mantener el texto dentro si hay suficiente altura
+    if (height >= 25) {
+      return (
+        <text
+          x={x + width / 2}
+          y={y + height / 2}
+          fill="rgba(255, 255, 255, 0.85)" // Blanco menos brillante
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="12"
+          fontWeight="500" // Menos peso para que no sea tan llamativo
+          style={{
+            textShadow: '1px 1px 2px rgba(0,0,0,0.7)', // Sombra más suave pero efectiva
+          }}
+        >
+          {value.toFixed(2)} MWh
+        </text>
+      );
+    }
+
+    // Para barras anchas pero bajas, colocar encima
     return (
-      <text 
-        x={x + width / 2} 
-        y={y + height / 2} 
-        fill="white" 
-        textAnchor="middle" 
+      <text
+        x={x + width / 2}
+        y={y - 12} // Más separación para evitar cortes
+        fill="var(--text-primary)"
+        textAnchor="middle"
         dominantBaseline="middle"
-        fontSize="12"
-        fontWeight="600"
+        fontSize="11"
+        fontWeight="500" // Menos peso
+        style={{
+          textShadow: '1px 1px 2px rgba(0,0,0,0.6)', // Sombra más definida
+        }}
       >
-        {value.toFixed(2)} MWh
+        {value.toFixed(1)}
       </text>
     );
   };
@@ -201,7 +248,7 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
             <h3 className="text-lg font-semibold text-primary">Producción mes actual</h3>
             <p className="text-sm text-secondary">{getCurrentMonthName()} {new Date().getFullYear()}</p>
           </div>
-          
+
           {/* Tabla de estadísticas como Grafana */}
           <div className="ml-4">
             <table className="text-xs border-collapse">
@@ -251,17 +298,17 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
       <div className="p-4">
         <div style={{ width: '100%', height }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart 
-              data={chartData} 
+            <BarChart
+              data={chartData}
               margin={{ top: 10, right: 30, left: 80, bottom: 10 }}
               barCategoryGap={chartData.length <= 5 ? "20%" : chartData.length <= 10 ? "15%" : "10%"}
             >
-              <CartesianGrid 
-                strokeDasharray="3 3" 
+              <CartesianGrid
+                strokeDasharray="3 3"
                 stroke="var(--text-muted)"
               />
-              <XAxis 
-                dataKey="dayLabel" 
+              <XAxis
+                dataKey="dayLabel"
                 stroke="var(--text-muted)"
                 fontSize={12}
                 tick={{ fill: 'var(--text-muted)' }}
@@ -270,7 +317,7 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
                 interval={0}
                 height={60}
               />
-              <YAxis 
+              <YAxis
                 stroke="var(--text-muted)"
                 fontSize={12}
                 tickFormatter={(value) => {
@@ -300,22 +347,22 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
                 })()}
                 width={70}
               />
-              <Legend 
+              <Legend
                 wrapperStyle={{ paddingTop: '20px' }}
                 iconType="rect"
               />
-              
+
               {/* Barras para cada planta con valores encima */}
-              <Bar 
-                dataKey="La Maja" 
-                fill="#10b981" 
+              <Bar
+                dataKey="La Maja"
+                fill="#10b981"
                 name="La Maja"
                 radius={[1, 1, 0, 0]}
                 label={renderCustomBarLabel}
               />
-              <Bar 
-                dataKey="Retamar" 
-                fill="#fbbf24" 
+              <Bar
+                dataKey="Retamar"
+                fill="#fbbf24"
                 name="Retamar"
                 radius={[1, 1, 0, 0]}
                 label={renderCustomBarLabel}

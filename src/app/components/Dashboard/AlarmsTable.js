@@ -117,17 +117,17 @@ const AlarmsTable = () => {
         const statusConfig = {
             active: {
                 label: 'Activa',
-                color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400',
+                color: 'badge-red text-red-700 dark:text-red-400',
                 icon: XCircle
             },
             acknowledged: {
                 label: 'Reconocida',
-                color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
+                color: 'badge-yellow text-yellow-700 dark:text-yellow-400',
                 icon: Eye
             },
             resolved: {
                 label: 'Resuelta',
-                color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+                color: 'badge-green text-green-700 dark:text-green-400',
                 icon: CheckCircle
             }
         };
