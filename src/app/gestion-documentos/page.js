@@ -5,16 +5,30 @@ import { Search, Download, Filter, Calendar, Database, FileText, RefreshCw } fro
 
 const GestionDocumentosPage = () => {
   const [buckets, setBuckets] = useState([]);
-  const [selectedBucket, setSelectedBucket] = useState(''); // Cambiado: inicialmente vacío
+  const [selectedBucket, setSelectedBucket] = useState('');
   const [measurements, setMeasurements] = useState([]);
-  const [availablePrimaryFilters, setAvailablePrimaryFilters] = useState([]); // Nuevo: filtros primarios desde API
-  
-  // Estados para el sistema de filtros en cascada
+  const [availablePrimaryFilters, setAvailablePrimaryFilters] = useState([]);
+  const [aggregationFunctions, setAggregationFunctions] = useState([]);
+
+  // Estados para filtros independientes
   const [selectedMeasurements, setSelectedMeasurements] = useState([]);
   const [availableFieldTypes, setAvailableFieldTypes] = useState([]);
-  const [selectedFieldType, setSelectedFieldType] = useState('');
-  const [fieldValues, setFieldValues] = useState([]);
-  const [selectedFieldValues, setSelectedFieldValues] = useState([]);
+  
+  // Filtro primario
+  const [primaryFilter, setPrimaryFilter] = useState({
+    type: '',
+    values: []
+  });
+  const [primaryFieldValues, setPrimaryFieldValues] = useState([]);
+  
+  // Filtro secundario
+  const [secondaryFilter, setSecondaryFilter] = useState({
+    type: '',
+    values: []
+  });
+  const [secondaryFieldValues, setSecondaryFieldValues] = useState([]);
+  
+  // Tags adicionales
   const [availableTagKeys, setAvailableTagKeys] = useState([]);
   const [selectedTagKeys, setSelectedTagKeys] = useState([]);
   const [tagValues, setTagValues] = useState({});
@@ -24,8 +38,9 @@ const GestionDocumentosPage = () => {
     buckets: false,
     measurements: false,
     fields: false,
-    values: false,
-    primaryFilters: false // Nuevo: estado de carga para filtros primarios
+    primaryValues: false,
+    secondaryValues: false,
+    primaryFilters: false
   });
 
   const [timeRange, setTimeRange] = useState({
@@ -43,16 +58,16 @@ const GestionDocumentosPage = () => {
   // Cargar buckets al iniciar
   useEffect(() => {
     loadBuckets();
+    loadAggregationFunctions();
   }, []);
 
   // Cargar measurements cuando cambia el bucket
   useEffect(() => {
     if (selectedBucket) {
       loadMeasurements(selectedBucket);
-      loadPrimaryFilters(selectedBucket); // Nuevo: cargar filtros primarios desde API
+      loadPrimaryFilters(selectedBucket);
       resetFilters();
     } else {
-      // Si no hay bucket seleccionado, limpiar todo
       setMeasurements([]);
       setAvailablePrimaryFilters([]);
       resetFilters();
@@ -61,11 +76,11 @@ const GestionDocumentosPage = () => {
 
   const resetFilters = () => {
     setSelectedMeasurements([]);
+    setPrimaryFilter({ type: '', values: [] });
+    setSecondaryFilter({ type: '', values: [] });
+    setPrimaryFieldValues([]);
+    setSecondaryFieldValues([]);
     setAvailableFieldTypes([]);
-    setSelectedFieldType('');
-    setFieldValues([]);
-    setSelectedFieldValues([]);
-    setAvailableTagKeys([]);
     setSelectedTagKeys([]);
     setTagValues({});
     setSelectedTagValues({});
@@ -74,49 +89,38 @@ const GestionDocumentosPage = () => {
   const loadPrimaryFilters = async (bucket) => {
     setLoadingStates(prev => ({ ...prev, primaryFilters: true }));
     try {
-      console.log('🔍 Obteniendo TODOS los filtros del bucket:', bucket);
-      
-      // Hacer una consulta general para obtener una muestra de todos los datos del bucket
+      console.log('🔍 Cargando filtros para bucket:', bucket);
+
       const exploreResponse = await fetch('/api/influxdb/explore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bucket })
       });
-      
+
       if (exploreResponse.ok) {
         const exploreData = await exploreResponse.json();
-        console.log('📊 Datos explorados:', exploreData);
-        
-        // Obtener todos los headers como filtros potenciales
-        const allHeaders = exploreData.headers || [];
-        
-        // Filtrar solo campos válidos como filtros, incluyendo algunos que empiecen por _
-        const validFilters = allHeaders.filter(header => {
-          // Excluir campos internos de InfluxDB que no son útiles como filtros
-          const excludeFields = ['result', 'table', ''];
-          
-          // Incluir campos que empiecen por _ si son campos estándar útiles
-          const includeSystemFields = ['_measurement', '_field', '_time', '_value'];
-          
-          if (excludeFields.includes(header)) return false;
-          if (includeSystemFields.includes(header)) return true;
-          if (header.startsWith('_')) return false; // Excluir otros campos _internos
-          
-          return header && header.trim() !== '';
-        });
-        
-        console.log('🏷️ TODOS los filtros encontrados:', allHeaders);
-        console.log('✅ Filtros VÁLIDOS para usar:', validFilters);
-        
-        setAvailablePrimaryFilters(validFilters);
+        console.log('📊 Filtros encontrados:', exploreData.availableTags);
+
+        if (exploreData.availableTags && exploreData.availableTags.length > 0) {
+          const systemFields = exploreData.availableTags.filter(tag => tag.startsWith('_'));
+          const customFields = exploreData.availableTags.filter(tag =>
+            !tag.startsWith('_') && tag.trim() !== ''
+          ).sort();
+
+          const organizedFilters = [...systemFields, ...customFields];
+          console.log('✅ Filtros organizados:', organizedFilters);
+          setAvailablePrimaryFilters(organizedFilters);
+        } else {
+          setAvailablePrimaryFilters(['_measurement', '_field']);
+        }
       } else {
-        console.error('❌ Error explorando bucket');
-        setAvailablePrimaryFilters([]);
+        console.warn('⚠️ Error en explore, usando filtros básicos');
+        setAvailablePrimaryFilters(['_measurement', '_field']);
       }
-      
+
     } catch (error) {
       console.error('❌ Error cargando filtros:', error);
-      setAvailablePrimaryFilters([]);
+      setAvailablePrimaryFilters(['_measurement', '_field']);
     }
     setLoadingStates(prev => ({ ...prev, primaryFilters: false }));
   };
@@ -132,6 +136,34 @@ const GestionDocumentosPage = () => {
       setBuckets(['DC', 'GeoMap', 'Omie', 'PV', '_monitoring', '_tasks']);
     }
     setLoadingStates(prev => ({ ...prev, buckets: false }));
+  };
+
+  const loadAggregationFunctions = async () => {
+    try {
+      console.log('🔍 Cargando funciones de agregación desde InfluxDB...');
+
+      const response = await fetch('/api/influxdb/aggregation-functions');
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📊 Respuesta de la API:', data);
+
+      if (data.functions && Array.isArray(data.functions) && data.functions.length > 0) {
+        setAggregationFunctions(data.functions);
+        console.log(`✅ ${data.functions.length} funciones cargadas desde InfluxDB:`, data.functions);
+        console.log(`📡 Fuente: ${data.source}`);
+      } else {
+        console.warn('⚠️ No se pudieron obtener funciones de agregación de InfluxDB');
+        setAggregationFunctions(['none']);
+      }
+
+    } catch (error) {
+      console.error('❌ Error cargando funciones de agregación:', error);
+      setAggregationFunctions(['none']);
+    }
   };
 
   const loadMeasurements = async (bucket) => {
@@ -160,7 +192,6 @@ const GestionDocumentosPage = () => {
 
     setLoadingStates(prev => ({ ...prev, fields: true }));
     try {
-      // Explorar el bucket para obtener TODOS los campos disponibles
       const exploreResponse = await fetch('/api/influxdb/explore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -173,20 +204,18 @@ const GestionDocumentosPage = () => {
       if (exploreResponse.ok) {
         const exploreData = await exploreResponse.json();
         allAvailableFields = exploreData.availableTags || [];
-        
-        // Separar campos del sistema de tags personalizados
+
         const systemFields = ['_measurement', '_field', '_time', '_value'];
         customTags = allAvailableFields.filter(field => !systemFields.includes(field));
-        
+
         console.log('📊 Todos los campos disponibles:', allAvailableFields);
         console.log('🏷️ Tags personalizados:', customTags);
       } else {
-        // Fallback: usar tag-keys API para el primer measurement
         const tagKeysResponse = await fetch('/api/influxdb/tag-keys', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            bucket: selectedBucket, 
+          body: JSON.stringify({
+            bucket: selectedBucket,
             measurement: selectedMeasurements[0]
           })
         });
@@ -196,17 +225,15 @@ const GestionDocumentosPage = () => {
           customTags = tagKeysData.tagKeys || [];
         }
 
-        // Definir campos del sistema disponibles
         const systemFields = ['_measurement', '_field', '_time', '_value'];
         allAvailableFields = [...systemFields, ...customTags];
       }
-      
+
       setAvailableFieldTypes(allAvailableFields);
       setAvailableTagKeys(customTags);
-      
+
     } catch (error) {
       console.error('Error loading field types:', error);
-      // Fallback con campos comunes
       const systemFields = ['_measurement', '_field', '_time', '_value'];
       const fallbackTags = ['PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type'];
       setAvailableFieldTypes([...systemFields, ...fallbackTags]);
@@ -215,101 +242,119 @@ const GestionDocumentosPage = () => {
     setLoadingStates(prev => ({ ...prev, fields: false }));
   };
 
-  const loadFieldValues = async (fieldType) => {
-    if (!fieldType || selectedMeasurements.length === 0) return;
-
-    setLoadingStates(prev => ({ ...prev, values: true }));
+  const loadFieldValuesDirectly = async (fieldType, filterType = 'primary') => {
+    const loadingKey = filterType === 'primary' ? 'primaryValues' : 'secondaryValues';
+    setLoadingStates(prev => ({ ...prev, [loadingKey]: true }));
+    
     try {
+      console.log(`🔍 Cargando valores para campo: ${fieldType} (${filterType})`);
+
       if (fieldType === '_measurement') {
-        setFieldValues(selectedMeasurements);
-        setLoadingStates(prev => ({ ...prev, values: false }));
+        if (filterType === 'primary') {
+          setPrimaryFieldValues(measurements);
+        } else {
+          setSecondaryFieldValues(measurements);
+        }
+        setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
         return;
       } else if (fieldType === '_time' || fieldType === '_value') {
-        setFieldValues(['(valores continuos)']);
-        setLoadingStates(prev => ({ ...prev, values: false }));
+        const continuousMessage = ['(valores continuos - usar filtro de tiempo)'];
+        if (filterType === 'primary') {
+          setPrimaryFieldValues(continuousMessage);
+        } else {
+          setSecondaryFieldValues(continuousMessage);
+        }
+        setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
         return;
-      } else if (fieldType === '_field') {
-        // Para _field, usar query directa para obtener todos los fields disponibles
-        const measurementFilters = selectedMeasurements
-          .map(m => `r._measurement == "${m}"`)
-          .join(' or ');
+      }
 
-        const query = `
+      let query;
+      if (fieldType === '_field') {
+        query = `
 from(bucket: "${selectedBucket}")
   |> range(start: -24h)
-  |> filter(fn: (r) => ${measurementFilters})
   |> keep(columns: ["_field"])
   |> distinct(column: "_field")
   |> limit(n: 100)`;
+      } else {
+        query = `
+from(bucket: "${selectedBucket}")
+  |> range(start: -24h)
+  |> filter(fn: (r) => exists r.${fieldType})
+  |> keep(columns: ["${fieldType}"])
+  |> distinct(column: "${fieldType}")
+  |> limit(n: 100)`;
+      }
 
-        const response = await fetch('/api/influxdb/query', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query })
-        });
+      console.log('📝 Query para cargar valores:', query);
 
-        if (response.ok) {
-          const result = await response.json();
-          const lines = result.data.trim().split('\n');
-          const values = [];
+      const response = await fetch('/api/influxdb/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
 
-          if (lines.length > 1) {
-            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-            const valueIndex = headers.indexOf('_value');
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📊 Resultado de query:', result);
 
-            if (valueIndex !== -1) {
-              for (let i = 1; i < lines.length; i++) {
-                if (!lines[i].trim()) continue;
-                const row = lines[i].split(',');
-                if (row[valueIndex]) {
-                  const value = row[valueIndex].replace(/"/g, '').trim();
-                  if (value && !values.includes(value)) {
-                    values.push(value);
-                  }
+        const lines = result.data.trim().split('\n');
+        const values = [];
+
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+          const valueIndex = fieldType === '_field' ? headers.indexOf('_value') : headers.indexOf(fieldType);
+
+          if (valueIndex !== -1) {
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue;
+              const row = lines[i].split(',');
+              if (row[valueIndex]) {
+                const value = row[valueIndex].replace(/"/g, '').trim();
+                if (value && value !== '' && value !== 'null' && !values.includes(value)) {
+                  values.push(value);
                 }
               }
             }
           }
-          setFieldValues(values.sort());
+        }
+
+        console.log('✅ Valores extraídos:', values);
+        if (filterType === 'primary') {
+          setPrimaryFieldValues(values.sort());
+        } else {
+          setSecondaryFieldValues(values.sort());
         }
       } else {
-        // Para tags personalizados, usar la API específica de tag-values
-        const tagValuesResponse = await fetch('/api/influxdb/tag-values', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            bucket: selectedBucket, 
-            measurement: selectedMeasurements[0], // Usar el primer measurement
-            tagKey: fieldType 
-          })
-        });
-
-        if (tagValuesResponse.ok) {
-          const tagValuesData = await tagValuesResponse.json();
-          setFieldValues(tagValuesData.values || []);
+        console.error('❌ Error en query:', response.status);
+        if (filterType === 'primary') {
+          setPrimaryFieldValues([]);
         } else {
-          setFieldValues([]);
+          setSecondaryFieldValues([]);
         }
       }
     } catch (error) {
-      console.error('Error loading field values:', error);
-      setFieldValues([]);
+      console.error('❌ Error cargando valores directamente:', error);
+      if (filterType === 'primary') {
+        setPrimaryFieldValues([]);
+      } else {
+        setSecondaryFieldValues([]);
+      }
     }
-    setLoadingStates(prev => ({ ...prev, values: false }));
+    setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
   };
 
   const loadTagValues = async (tagKey) => {
     if (!tagKey || selectedMeasurements.length === 0) return;
 
     try {
-      // Usar la API específica para tag-values
       const tagValuesResponse = await fetch('/api/influxdb/tag-values', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          bucket: selectedBucket, 
-          measurement: selectedMeasurements[0], // Usar el primer measurement seleccionado
-          tagKey: tagKey 
+        body: JSON.stringify({
+          bucket: selectedBucket,
+          measurement: selectedMeasurements[0],
+          tagKey: tagKey
         })
       });
 
@@ -337,7 +382,6 @@ from(bucket: "${selectedBucket}")
 
   const handleBucketChange = (bucketName) => {
     setSelectedBucket(bucketName);
-    // El useEffect se encargará de cargar los measurements y resetear los filtros
   };
 
   const handleMeasurementChange = (measurement) => {
@@ -346,131 +390,82 @@ from(bucket: "${selectedBucket}")
       : [...selectedMeasurements, measurement];
 
     setSelectedMeasurements(newSelected);
-    
-    // Reset filtros dependientes que no sean el filtro principal de measurements
-    if (selectedFieldType !== '_measurement') {
-      setSelectedFieldType('');
-      setFieldValues([]);
-      setSelectedFieldValues([]);
-    }
-    
+
+    // Resetear solo los filtros de tags
     setSelectedTagKeys([]);
     setTagValues({});
     setSelectedTagValues({});
 
     if (newSelected.length > 0) {
-      // Cargar field types y tag keys para los measurements seleccionados
       loadFieldTypes(newSelected);
-      
-      // Si el filtro actual no es _measurement y hay un field type seleccionado, recargar sus valores
-      if (selectedFieldType && selectedFieldType !== '_measurement') {
-        loadFieldValues(selectedFieldType);
-      }
     } else {
       setAvailableFieldTypes([]);
       setAvailableTagKeys([]);
     }
   };
 
-  const handleFieldTypeChange = (fieldType) => {
-    setSelectedFieldType(fieldType);
-    setFieldValues([]);
-    setSelectedFieldValues([]);
-    
-    if (fieldType === '_measurement') {
-      // For _measurement, use the already loaded measurements
-      setFieldValues(measurements);
-    } else if (fieldType === '_time' || fieldType === '_value') {
-      // For continuous fields, show explanatory message
-      setFieldValues(['(valores continuos - usar filtro de tiempo)']);
-    } else if (fieldType && fieldType !== '') {
-      // For other field types, try to load values using a direct query approach
-      loadFieldValuesDirectly(fieldType);
+  // Manejadores para filtro primario
+  const handlePrimaryFilterTypeChange = (filterType) => {
+    setPrimaryFilter({
+      type: filterType,
+      values: []
+    });
+    setPrimaryFieldValues([]);
+
+    if (filterType === '_measurement') {
+      setPrimaryFieldValues(measurements);
+    } else if (filterType === '_time' || filterType === '_value') {
+      setPrimaryFieldValues(['(valores continuos - usar filtro de tiempo)']);
+    } else if (filterType && filterType !== '') {
+      loadFieldValuesDirectly(filterType, 'primary');
     }
   };
 
-  const loadFieldValuesDirectly = async (fieldType) => {
-    setLoadingStates(prev => ({ ...prev, values: true }));
-    try {
-      console.log(`🔍 Cargando valores para campo: ${fieldType}`);
-      
-      // Crear una query simple para obtener valores únicos del campo
-      let query;
-      
-      if (fieldType === '_field') {
-        // Para _field, obtener todos los fields disponibles
-        query = `
-from(bucket: "${selectedBucket}")
-  |> range(start: -24h)
-  |> keep(columns: ["_field"])
-  |> distinct(column: "_field")
-  |> limit(n: 100)`;
-      } else {
-        // Para otros campos (tags), obtener valores únicos
-        query = `
-from(bucket: "${selectedBucket}")
-  |> range(start: -24h)
-  |> filter(fn: (r) => exists r.${fieldType})
-  |> keep(columns: ["${fieldType}"])
-  |> distinct(column: "${fieldType}")
-  |> limit(n: 100)`;
+  const handlePrimaryFilterValueChange = (value) => {
+    const newValues = primaryFilter.values.includes(value)
+      ? primaryFilter.values.filter(v => v !== value)
+      : [...primaryFilter.values, value];
+
+    setPrimaryFilter(prev => ({
+      ...prev,
+      values: newValues
+    }));
+
+    // Si el filtro primario es _measurement, actualizar selectedMeasurements
+    if (primaryFilter.type === '_measurement') {
+      setSelectedMeasurements(newValues);
+      if (newValues.length > 0) {
+        loadFieldTypes(newValues);
       }
-      
-      console.log('📝 Query para cargar valores:', query);
-      
-      const response = await fetch('/api/influxdb/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('📊 Resultado de query:', result);
-        
-        const lines = result.data.trim().split('\n');
-        const values = [];
-
-        if (lines.length > 1) {
-          const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-          const valueIndex = fieldType === '_field' ? headers.indexOf('_value') : headers.indexOf(fieldType);
-
-          console.log('📋 Headers:', headers);
-          console.log('🎯 Buscando índice para:', fieldType, 'encontrado en posición:', valueIndex);
-
-          if (valueIndex !== -1) {
-            for (let i = 1; i < lines.length; i++) {
-              if (!lines[i].trim()) continue;
-              const row = lines[i].split(',');
-              if (row[valueIndex]) {
-                const value = row[valueIndex].replace(/"/g, '').trim();
-                if (value && value !== '' && value !== 'null' && !values.includes(value)) {
-                  values.push(value);
-                }
-              }
-            }
-          }
-        }
-        
-        console.log('✅ Valores extraídos:', values);
-        setFieldValues(values.sort());
-      } else {
-        console.error('❌ Error en query:', response.status);
-        setFieldValues([]);
-      }
-    } catch (error) {
-      console.error('❌ Error cargando valores directamente:', error);
-      setFieldValues([]);
     }
-    setLoadingStates(prev => ({ ...prev, values: false }));
   };
 
-  const handleFieldValueChange = (value) => {
-    const newSelected = selectedFieldValues.includes(value)
-      ? selectedFieldValues.filter(v => v !== value)
-      : [...selectedFieldValues, value];
-    
-    setSelectedFieldValues(newSelected);
+  // Manejadores para filtro secundario
+  const handleSecondaryFilterTypeChange = (filterType) => {
+    setSecondaryFilter({
+      type: filterType,
+      values: []
+    });
+    setSecondaryFieldValues([]);
+
+    if (filterType === '_measurement') {
+      setSecondaryFieldValues(measurements);
+    } else if (filterType === '_time' || filterType === '_value') {
+      setSecondaryFieldValues(['(valores continuos - usar filtro de tiempo)']);
+    } else if (filterType && filterType !== '' && filterType !== primaryFilter.type) {
+      loadFieldValuesDirectly(filterType, 'secondary');
+    }
+  };
+
+  const handleSecondaryFilterValueChange = (value) => {
+    const newValues = secondaryFilter.values.includes(value)
+      ? secondaryFilter.values.filter(v => v !== value)
+      : [...secondaryFilter.values, value];
+
+    setSecondaryFilter(prev => ({
+      ...prev,
+      values: newValues
+    }));
   };
 
   const handleTagKeyChange = (tagKey) => {
@@ -480,7 +475,6 @@ from(bucket: "${selectedBucket}")
 
     setSelectedTagKeys(newSelected);
 
-    // Solo cargar valores si es una nueva selección
     if (!selectedTagKeys.includes(tagKey)) {
       loadTagValues(tagKey);
     }
@@ -504,40 +498,66 @@ from(bucket: "${selectedBucket}")
     }
 
     let query = `from(bucket: "${selectedBucket}")\n`;
-    
+
     if (timeRange.type === 'auto') {
       query += `  |> range(start: ${timeRange.from}, stop: ${timeRange.to})\n`;
     } else {
       query += `  |> range(start: ${timeRange.customFrom}, stop: ${timeRange.customTo})\n`;
     }
 
-    if (selectedMeasurements.length > 0) {
-      if (selectedMeasurements.length === 1) {
-        query += `  |> filter(fn: (r) => r._measurement == "${selectedMeasurements[0]}")\n`;
-      } else {
-        const measurementsList = selectedMeasurements.map(m => `"${m}"`).join(', ');
-        query += `  |> filter(fn: (r) => contains(value: r._measurement, set: [${measurementsList}]))\n`;
-      }
-    }
-
-    if (selectedFieldType && selectedFieldValues.length > 0) {
-      if (selectedFieldType === '_field') {
-        if (selectedFieldValues.length === 1) {
-          query += `  |> filter(fn: (r) => r._field == "${selectedFieldValues[0]}")\n`;
+    // Aplicar filtro primario
+    if (primaryFilter.type && primaryFilter.values.length > 0) {
+      if (primaryFilter.type === '_measurement') {
+        if (primaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r._measurement == "${primaryFilter.values[0]}")\n`;
         } else {
-          const valuesList = selectedFieldValues.map(v => `"${v}"`).join(', ');
+          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
+          query += `  |> filter(fn: (r) => contains(value: r._measurement, set: [${valuesList}]))\n`;
+        }
+      } else if (primaryFilter.type === '_field') {
+        if (primaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r._field == "${primaryFilter.values[0]}")\n`;
+        } else {
+          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
           query += `  |> filter(fn: (r) => contains(value: r._field, set: [${valuesList}]))\n`;
         }
-      } else if (!selectedFieldType.startsWith('_') && selectedFieldType !== '_measurement') {
-        if (selectedFieldValues.length === 1) {
-          query += `  |> filter(fn: (r) => r.${selectedFieldType} == "${selectedFieldValues[0]}")\n`;
+      } else if (!primaryFilter.type.startsWith('_') || primaryFilter.type === '_value') {
+        if (primaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r.${primaryFilter.type} == "${primaryFilter.values[0]}")\n`;
         } else {
-          const valuesList = selectedFieldValues.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r.${selectedFieldType}, set: [${valuesList}]))\n`;
+          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
+          query += `  |> filter(fn: (r) => contains(value: r.${primaryFilter.type}, set: [${valuesList}]))\n`;
         }
       }
     }
 
+    // Aplicar filtro secundario
+    if (secondaryFilter.type && secondaryFilter.values.length > 0) {
+      if (secondaryFilter.type === '_measurement') {
+        if (secondaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r._measurement == "${secondaryFilter.values[0]}")\n`;
+        } else {
+          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
+          query += `  |> filter(fn: (r) => contains(value: r._measurement, set: [${valuesList}]))\n`;
+        }
+      } else if (secondaryFilter.type === '_field') {
+        if (secondaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r._field == "${secondaryFilter.values[0]}")\n`;
+        } else {
+          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
+          query += `  |> filter(fn: (r) => contains(value: r._field, set: [${valuesList}]))\n`;
+        }
+      } else if (!secondaryFilter.type.startsWith('_') || secondaryFilter.type === '_value') {
+        if (secondaryFilter.values.length === 1) {
+          query += `  |> filter(fn: (r) => r.${secondaryFilter.type} == "${secondaryFilter.values[0]}")\n`;
+        } else {
+          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
+          query += `  |> filter(fn: (r) => contains(value: r.${secondaryFilter.type}, set: [${valuesList}]))\n`;
+        }
+      }
+    }
+
+    // Aplicar filtros de tags adicionales
     Object.entries(selectedTagValues).forEach(([tagKey, values]) => {
       if (values.length > 0) {
         if (values.length === 1) {
@@ -563,23 +583,28 @@ from(bucket: "${selectedBucket}")
       return;
     }
 
-    if (selectedMeasurements.length === 0) {
-      alert('Debe seleccionar al menos un measurement');
+    // Verificar que al menos uno de los filtros tenga valores
+    const hasPrimaryFilter = primaryFilter.type && primaryFilter.values.length > 0;
+    const hasSecondaryFilter = secondaryFilter.type && secondaryFilter.values.length > 0;
+    const hasTagFilters = Object.values(selectedTagValues).some(values => values.length > 0);
+
+    if (!hasPrimaryFilter && !hasSecondaryFilter && !hasTagFilters) {
+      alert('Debe configurar al menos un filtro');
       return;
     }
 
     setIsLoading(true);
     try {
       const query = buildFluxQuery();
-      
+
       const response = await fetch('/api/influxdb/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query })
       });
-      
+
       const data = await response.json();
-      
+
       if (response.ok) {
         setQueryResult({
           query: data.query,
@@ -644,11 +669,11 @@ from(bucket: "${selectedBucket}")
           <h1 className="text-2xl font-semibold text-primary">Gestión de Documentos</h1>
           <p className="text-sm text-secondary">Consulta y exportación de datos desde InfluxDB</p>
         </div>
-        
+
         <div className="flex gap-3">
           <button
             onClick={() => exportData('csv')}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             disabled={!queryResult || !queryResult.data}
           >
             <Download size={16} />
@@ -656,7 +681,7 @@ from(bucket: "${selectedBucket}")
           </button>
           <button
             onClick={() => exportData('json')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             disabled={!queryResult || !queryResult.data}
           >
             <Download size={16} />
@@ -671,8 +696,8 @@ from(bucket: "${selectedBucket}")
           <Database size={16} />
           FROM
         </h3>
-        
-        <select 
+
+        <select
           value={selectedBucket}
           onChange={(e) => handleBucketChange(e.target.value)}
           className="w-full p-2 border border-custom rounded-md bg-panel text-primary"
@@ -683,7 +708,7 @@ from(bucket: "${selectedBucket}")
             <option key={bucket} value={bucket}>{bucket}</option>
           ))}
         </select>
-        
+
         {!selectedBucket && (
           <p className="text-sm text-secondary mt-2">
             Selecciona un bucket para comenzar a filtrar los datos
@@ -691,44 +716,27 @@ from(bucket: "${selectedBucket}")
         )}
       </div>
 
-      {/* Filters Section - Solo mostrar si hay bucket seleccionado */}
+      {/* Filters Section */}
       {selectedBucket && (
         <div className="bg-panel rounded-lg p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
             <Filter size={16} />
             Filtros
           </h3>
-          
+
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Primary Filter */}
+            {/* Filtro Primario */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Filtro Principal</label>
-                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                  {selectedFieldType === '_measurement' ? selectedMeasurements.length : selectedFieldValues.length}
+                <label className="text-sm font-medium text-primary">Filtro Primario</label>
+                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
+                  {primaryFilter.values.length}
                 </span>
               </div>
-              
+
               <select
-                value={selectedFieldType}
-                onChange={(e) => {
-                  const newFieldType = e.target.value;
-                  setSelectedFieldType(newFieldType);
-                  
-                  // Reset dependent filters
-                  setFieldValues([]);
-                  setSelectedFieldValues([]);
-                  setSelectedMeasurements([]);
-                  
-                  // Load appropriate data based on selection
-                  if (newFieldType === '_measurement') {
-                    // For _measurement, we already have the measurements loaded
-                    setFieldValues(measurements);
-                  } else if (newFieldType) {
-                    // For other fields, clear values and show message
-                    setFieldValues([]);
-                  }
-                }}
+                value={primaryFilter.type}
+                onChange={(e) => handlePrimaryFilterTypeChange(e.target.value)}
                 className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary mb-2"
                 disabled={loadingStates.primaryFilters}
               >
@@ -741,14 +749,13 @@ from(bucket: "${selectedBucket}")
                   ))
                 )}
               </select>
-              
+
               <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-                {!selectedFieldType ? (
+                {!primaryFilter.type ? (
                   <div className="text-center py-2 text-secondary text-sm">
                     Selecciona un tipo de filtro arriba
                   </div>
-                ) : selectedFieldType === '_measurement' ? (
-                  // Show measurements
+                ) : primaryFilter.type === '_measurement' ? (
                   loadingStates.measurements ? (
                     <div className="text-center py-2 text-secondary text-sm">
                       <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
@@ -763,41 +770,33 @@ from(bucket: "${selectedBucket}")
                       <label key={measurement} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
                         <input
                           type="checkbox"
-                          checked={selectedMeasurements.includes(measurement)}
-                          onChange={() => handleMeasurementChange(measurement)}
+                          checked={primaryFilter.values.includes(measurement)}
+                          onChange={() => handlePrimaryFilterValueChange(measurement)}
                           className="rounded"
                         />
                         <span className="truncate text-primary">{measurement}</span>
                       </label>
                     ))
                   )
-                ) : selectedFieldType && fieldValues.length === 0 && loadingStates.values ? (
+                ) : primaryFilter.type && primaryFieldValues.length === 0 && loadingStates.primaryValues ? (
                   <div className="text-center py-2 text-secondary text-sm">
                     <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
                     Cargando valores...
                   </div>
-                ) : fieldValues.length === 0 ? (
+                ) : primaryFieldValues.length === 0 ? (
                   <div className="text-center py-2 text-secondary text-sm">
-                    {selectedFieldType === '_time' || selectedFieldType === '_value' ? 
+                    {primaryFilter.type === '_time' || primaryFilter.type === '_value' ?
                       'Filtro de valores continuos - usar rango de tiempo' :
-                      'Selecciona measurements primero para ver valores disponibles'
+                      'No hay valores disponibles para este filtro'
                     }
                   </div>
                 ) : (
-                  fieldValues.map(value => (
+                  primaryFieldValues.map(value => (
                     <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
                       <input
                         type="checkbox"
-                        checked={selectedFieldType === '_measurement' ? 
-                          selectedMeasurements.includes(value) : 
-                          selectedFieldValues.includes(value)}
-                        onChange={() => {
-                          if (selectedFieldType === '_measurement') {
-                            handleMeasurementChange(value);
-                          } else {
-                            handleFieldValueChange(value);
-                          }
-                        }}
+                        checked={primaryFilter.values.includes(value)}
+                        onChange={() => handlePrimaryFilterValueChange(value)}
                         className="rounded"
                       />
                       <span className="truncate text-primary">{value}</span>
@@ -807,44 +806,54 @@ from(bucket: "${selectedBucket}")
               </div>
             </div>
 
-            {/* Field Type */}
+            {/* Filtro Secundario */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Field Type</label>
-                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                  {selectedFieldValues.length}
+                <label className="text-sm font-medium text-primary">Filtro Secundario</label>
+                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
+                  {secondaryFilter.values.length}
                 </span>
               </div>
-              
+
               <select
-                value={selectedFieldType}
-                onChange={(e) => handleFieldTypeChange(e.target.value)}
+                value={secondaryFilter.type}
+                onChange={(e) => handleSecondaryFilterTypeChange(e.target.value)}
                 className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
                 disabled={availableFieldTypes.length === 0}
               >
                 <option value="">Seleccionar tipo</option>
-                {availableFieldTypes.map(fieldType => (
-                  <option key={fieldType} value={fieldType}>{fieldType}</option>
-                ))}
+                {availableFieldTypes
+                  .filter(fieldType => fieldType !== primaryFilter.type)
+                  .map(fieldType => (
+                    <option key={fieldType} value={fieldType}>{fieldType}</option>
+                  ))
+                }
               </select>
-              
+
               <div className="max-h-32 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-                {selectedFieldType && fieldValues.length === 0 && loadingStates.values ? (
+                {!secondaryFilter.type ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    Selecciona un tipo de filtro secundario
+                  </div>
+                ) : secondaryFilter.type && secondaryFieldValues.length === 0 && loadingStates.secondaryValues ? (
                   <div className="text-center py-2 text-secondary text-sm">
                     <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
                     Cargando valores...
                   </div>
-                ) : fieldValues.length === 0 ? (
+                ) : secondaryFieldValues.length === 0 ? (
                   <div className="text-center py-2 text-secondary text-sm">
-                    {selectedFieldType ? 'No hay valores disponibles' : 'Selecciona un field type'}
+                    {secondaryFilter.type === '_time' || secondaryFilter.type === '_value' ?
+                      'Filtro de valores continuos - usar rango de tiempo' :
+                      'No hay valores disponibles'
+                    }
                   </div>
                 ) : (
-                  fieldValues.map(value => (
+                  secondaryFieldValues.map(value => (
                     <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
                       <input
                         type="checkbox"
-                        checked={selectedFieldValues.includes(value)}
-                        onChange={() => handleFieldValueChange(value)}
+                        checked={secondaryFilter.values.includes(value)}
+                        onChange={() => handleSecondaryFilterValueChange(value)}
                         className="rounded"
                       />
                       <span className="truncate text-primary">{value}</span>
@@ -858,28 +867,33 @@ from(bucket: "${selectedBucket}")
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-primary">Tag Keys</label>
-                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
                   {selectedTagKeys.length}
                 </span>
               </div>
-              
+
               <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
                 {availableTagKeys.length === 0 ? (
                   <div className="text-center py-2 text-secondary text-sm">
-                    Selecciona measurements primero
+                    {selectedMeasurements.length === 0 ? 
+                      'Selecciona measurements primero' : 
+                      'No hay tag keys disponibles'
+                    }
                   </div>
                 ) : (
-                  availableTagKeys.map(tagKey => (
-                    <label key={tagKey} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                      <input
-                        type="checkbox"
-                        checked={selectedTagKeys.includes(tagKey)}
-                        onChange={() => handleTagKeyChange(tagKey)}
-                        className="rounded"
-                      />
-                      <span className="truncate text-primary">{tagKey}</span>
-                    </label>
-                  ))
+                  availableTagKeys
+                    .filter(tagKey => tagKey !== primaryFilter.type && tagKey !== secondaryFilter.type)
+                    .map(tagKey => (
+                      <label key={tagKey} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedTagKeys.includes(tagKey)}
+                          onChange={() => handleTagKeyChange(tagKey)}
+                          className="rounded"
+                        />
+                        <span className="truncate text-primary">{tagKey}</span>
+                      </label>
+                    ))
                 )}
               </div>
             </div>
@@ -888,11 +902,11 @@ from(bucket: "${selectedBucket}")
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-primary">Tag Values</label>
-                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
                   {Object.values(selectedTagValues).flat().length}
                 </span>
               </div>
-              
+
               <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-2 bg-panel">
                 {selectedTagKeys.length === 0 ? (
                   <div className="text-center py-2 text-secondary text-sm">
@@ -931,37 +945,37 @@ from(bucket: "${selectedBucket}")
         </div>
       )}
 
-      {/* Time Range - Solo mostrar si hay bucket seleccionado */}
+      {/* Time Range */}
       {selectedBucket && (
         <div className="bg-panel rounded-lg p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
             <Calendar size={16} />
             Rango de Tiempo
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <div className="flex gap-2 mb-2">
                 <button
-                  onClick={() => setTimeRange({...timeRange, type: 'custom'})}
+                  onClick={() => setTimeRange({ ...timeRange, type: 'custom' })}
                   className={`px-3 py-1 text-sm rounded ${timeRange.type === 'custom' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
                 >
                   CUSTOM
                 </button>
                 <button
-                  onClick={() => setTimeRange({...timeRange, type: 'auto'})}
+                  onClick={() => setTimeRange({ ...timeRange, type: 'auto' })}
                   className={`px-3 py-1 text-sm rounded ${timeRange.type === 'auto' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
                 >
                   AUTO
                 </button>
               </div>
-              
+
               {timeRange.type === 'auto' ? (
                 <select
                   value={`${timeRange.from}-${timeRange.to}`}
                   onChange={(e) => {
                     const [from, to] = e.target.value.split('-');
-                    setTimeRange({...timeRange, from, to});
+                    setTimeRange({ ...timeRange, from, to });
                   }}
                   className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
                 >
@@ -976,19 +990,19 @@ from(bucket: "${selectedBucket}")
                   <input
                     type="datetime-local"
                     value={timeRange.customFrom}
-                    onChange={(e) => setTimeRange({...timeRange, customFrom: e.target.value})}
+                    onChange={(e) => setTimeRange({ ...timeRange, customFrom: e.target.value })}
                     className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
                   />
                   <input
                     type="datetime-local"
                     value={timeRange.customTo}
-                    onChange={(e) => setTimeRange({...timeRange, customTo: e.target.value})}
+                    onChange={(e) => setTimeRange({ ...timeRange, customTo: e.target.value })}
                     className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
                   />
                 </div>
               )}
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium mb-2 text-primary">Función de Agregación</label>
               <select
@@ -996,26 +1010,24 @@ from(bucket: "${selectedBucket}")
                 onChange={(e) => setAggregateFunction(e.target.value)}
                 className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
               >
-                <option value="none">Sin agregación</option>
-                <option value="mean">mean</option>
-                <option value="median">median</option>
-                <option value="last">last</option>
-                <option value="max">max</option>
-                <option value="min">min</option>
-                <option value="sum">sum</option>
+                {aggregationFunctions.map(func => (
+                  <option key={func} value={func}>
+                    {func === 'none' ? 'Sin agregación' : func}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
         </div>
       )}
 
-      {/* Execute Query - Solo mostrar si hay bucket seleccionado */}
+      {/* Execute Query */}
       {selectedBucket && (
         <div className="flex justify-center">
           <button
             onClick={executeQuery}
-            disabled={isLoading || selectedMeasurements.length === 0}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isLoading}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isLoading ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1031,7 +1043,7 @@ from(bucket: "${selectedBucket}")
       {queryResult && (
         <div className="bg-panel rounded-lg p-4">
           <h3 className="text-sm font-semibold mb-3 text-primary">Resultado</h3>
-          
+
           {queryResult.error ? (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
               <h4 className="text-red-800 dark:text-red-200 font-medium mb-2">Error en la consulta</h4>
@@ -1052,12 +1064,14 @@ from(bucket: "${selectedBucket}")
                 <div className="text-xs text-secondary">Bucket</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-orange-500">{selectedMeasurements.length}</div>
-                <div className="text-xs text-secondary">Measurements</div>
+                <div className="text-2xl font-bold text-orange-500">
+                  {primaryFilter.values.length + secondaryFilter.values.length + Object.values(selectedTagValues).flat().length}
+                </div>
+                <div className="text-xs text-secondary">Filtros</div>
               </div>
             </div>
           )}
-          
+
           <div className="bg-header-table border border-custom p-3 rounded text-sm font-mono overflow-x-auto">
             <pre className="text-primary whitespace-pre-wrap">{queryResult.query}</pre>
           </div>
@@ -1082,7 +1096,7 @@ from(bucket: "${selectedBucket}")
           <Database size={48} className="mx-auto text-secondary mb-4" />
           <h3 className="text-lg font-semibold text-primary mb-2">Selecciona un bucket para comenzar</h3>
           <p className="text-secondary">
-            Elige un bucket de la lista desplegable de arriba para ver los measurements disponibles 
+            Elige un bucket de la lista desplegable de arriba para ver los measurements disponibles
             y comenzar a construir tu consulta.
           </p>
         </div>
