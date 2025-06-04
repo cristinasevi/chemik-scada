@@ -1,128 +1,86 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Search, Download, Filter, Calendar, Database, FileText, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Download, Filter, Calendar, Database, FileText, RefreshCw, Play, Copy, Eye, ChevronDown, ChevronRight, X, Plus } from 'lucide-react';
 
 const GestionDocumentosPage = () => {
   const [buckets, setBuckets] = useState([]);
   const [selectedBucket, setSelectedBucket] = useState('');
   const [measurements, setMeasurements] = useState([]);
-  const [availablePrimaryFilters, setAvailablePrimaryFilters] = useState([]);
+  const [fields, setFields] = useState([]);
+  const [availableTagKeys, setAvailableTagKeys] = useState([]);
+  const [filters, setFilters] = useState([]);
   const [aggregationFunctions, setAggregationFunctions] = useState([]);
 
-  // Estados para filtros independientes
-  const [selectedMeasurements, setSelectedMeasurements] = useState([]);
-  const [availableFieldTypes, setAvailableFieldTypes] = useState([]);
-  
-  // Filtro primario
-  const [primaryFilter, setPrimaryFilter] = useState({
-    type: '',
-    values: []
-  });
-  const [primaryFieldValues, setPrimaryFieldValues] = useState([]);
-  
-  // Filtro secundario
-  const [secondaryFilter, setSecondaryFilter] = useState({
-    type: '',
-    values: []
-  });
-  const [secondaryFieldValues, setSecondaryFieldValues] = useState([]);
-  
-  // Tags adicionales
-  const [availableTagKeys, setAvailableTagKeys] = useState([]);
-  const [selectedTagKeys, setSelectedTagKeys] = useState([]);
-  const [tagValues, setTagValues] = useState({});
-  const [selectedTagValues, setSelectedTagValues] = useState({});
+  // Cache para evitar llamadas repetidas
+  const [bucketCache, setBucketCache] = useState(new Map());
 
   const [loadingStates, setLoadingStates] = useState({
     buckets: false,
-    measurements: false,
-    fields: false,
-    primaryValues: false,
-    secondaryValues: false,
-    primaryFilters: false
+    bucketData: false, // Cambio: un solo estado para toda la carga del bucket
+    executing: false
   });
 
   const [timeRange, setTimeRange] = useState({
-    type: 'auto',
-    from: 'now-1h',
-    to: 'now',
-    customFrom: '',
-    customTo: ''
+    start: 'now-1h',
+    stop: 'now'
   });
 
+  const [windowPeriod, setWindowPeriod] = useState('auto');
   const [aggregateFunction, setAggregateFunction] = useState('mean');
-  const [isLoading, setIsLoading] = useState(false);
   const [queryResult, setQueryResult] = useState(null);
+  const [rawQuery, setRawQuery] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customQuery, setCustomQuery] = useState('');
+  const [useCustomQuery, setUseCustomQuery] = useState(false);
 
-  // Cargar buckets al iniciar
+  // Time range presets
+  const timeRangePresets = [
+    { label: 'Past 5m', value: 'now-5m' },
+    { label: 'Past 15m', value: 'now-15m' },
+    { label: 'Past 1h', value: 'now-1h' },
+    { label: 'Past 6h', value: 'now-6h' },
+    { label: 'Past 24h', value: 'now-24h' },
+    { label: 'Past 7d', value: 'now-7d' },
+    { label: 'Past 30d', value: 'now-30d' }
+  ];
+
+  // Window period options
+  const windowPeriods = [
+    { label: 'auto', value: 'auto' },
+    { label: '1s', value: '1s' },
+    { label: '10s', value: '10s' },
+    { label: '1m', value: '1m' },
+    { label: '5m', value: '5m' },
+    { label: '15m', value: '15m' },
+    { label: '1h', value: '1h' },
+    { label: '1d', value: '1d' }
+  ];
+
+  // Load initial data
   useEffect(() => {
     loadBuckets();
     loadAggregationFunctions();
   }, []);
 
-  // Cargar measurements cuando cambia el bucket
+  // OPTIMIZACIÓN: Cargar datos del bucket solo cuando cambie y no esté en cache
   useEffect(() => {
     if (selectedBucket) {
-      loadMeasurements(selectedBucket);
-      loadPrimaryFilters(selectedBucket);
-      resetFilters();
-    } else {
-      setMeasurements([]);
-      setAvailablePrimaryFilters([]);
-      resetFilters();
+      loadBucketData();
+      resetSelections();
     }
   }, [selectedBucket]);
 
-  const resetFilters = () => {
-    setSelectedMeasurements([]);
-    setPrimaryFilter({ type: '', values: [] });
-    setSecondaryFilter({ type: '', values: [] });
-    setPrimaryFieldValues([]);
-    setSecondaryFieldValues([]);
-    setAvailableFieldTypes([]);
-    setSelectedTagKeys([]);
-    setTagValues({});
-    setSelectedTagValues({});
-  };
-
-  const loadPrimaryFilters = async (bucket) => {
-    setLoadingStates(prev => ({ ...prev, primaryFilters: true }));
-    try {
-      console.log('🔍 Cargando filtros para bucket:', bucket);
-
-      const exploreResponse = await fetch('/api/influxdb/explore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bucket })
-      });
-
-      if (exploreResponse.ok) {
-        const exploreData = await exploreResponse.json();
-        console.log('📊 Filtros encontrados:', exploreData.availableTags);
-
-        if (exploreData.availableTags && exploreData.availableTags.length > 0) {
-          const systemFields = exploreData.availableTags.filter(tag => tag.startsWith('_'));
-          const customFields = exploreData.availableTags.filter(tag =>
-            !tag.startsWith('_') && tag.trim() !== ''
-          ).sort();
-
-          const organizedFilters = [...systemFields, ...customFields];
-          console.log('✅ Filtros organizados:', organizedFilters);
-          setAvailablePrimaryFilters(organizedFilters);
-        } else {
-          setAvailablePrimaryFilters(['_measurement', '_field']);
-        }
-      } else {
-        console.warn('⚠️ Error en explore, usando filtros básicos');
-        setAvailablePrimaryFilters(['_measurement', '_field']);
-      }
-
-    } catch (error) {
-      console.error('❌ Error cargando filtros:', error);
-      setAvailablePrimaryFilters(['_measurement', '_field']);
+  // Update raw query when selections change
+  useEffect(() => {
+    if (!useCustomQuery) {
+      buildFluxQuery();
     }
-    setLoadingStates(prev => ({ ...prev, primaryFilters: false }));
+  }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
+
+  const resetSelections = () => {
+    setFilters([]);
+    setQueryResult(null);
   };
 
   const loadBuckets = async () => {
@@ -133,511 +91,372 @@ const GestionDocumentosPage = () => {
       setBuckets(data.buckets || []);
     } catch (error) {
       console.error('Error loading buckets:', error);
-      setBuckets(['DC', 'GeoMap', 'Omie', 'PV', '_monitoring', '_tasks']);
+      setBuckets([]);
     }
     setLoadingStates(prev => ({ ...prev, buckets: false }));
   };
 
   const loadAggregationFunctions = async () => {
     try {
-      console.log('🔍 Cargando funciones de agregación desde InfluxDB...');
-
       const response = await fetch('/api/influxdb/aggregation-functions');
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
       const data = await response.json();
-      console.log('📊 Respuesta de la API:', data);
-
-      if (data.functions && Array.isArray(data.functions) && data.functions.length > 0) {
-        setAggregationFunctions(data.functions);
-        console.log(`✅ ${data.functions.length} funciones cargadas desde InfluxDB:`, data.functions);
-        console.log(`📡 Fuente: ${data.source}`);
-      } else {
-        console.warn('⚠️ No se pudieron obtener funciones de agregación de InfluxDB');
-        setAggregationFunctions(['none']);
-      }
-
+      setAggregationFunctions(data.functions || []);
     } catch (error) {
-      console.error('❌ Error cargando funciones de agregación:', error);
-      setAggregationFunctions(['none']);
+      console.error('Error loading aggregation functions:', error);
+      setAggregationFunctions(['none', 'mean', 'max', 'min', 'sum', 'count']);
     }
   };
 
-  const loadMeasurements = async (bucket) => {
-    setLoadingStates(prev => ({ ...prev, measurements: true }));
-    try {
-      const response = await fetch('/api/influxdb/measurements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bucket })
-      });
-      const data = await response.json();
-      setMeasurements(data.measurements || []);
-    } catch (error) {
-      console.error('Error loading measurements:', error);
-      setMeasurements([]);
-    }
-    setLoadingStates(prev => ({ ...prev, measurements: false }));
-  };
-
-  const loadFieldTypes = async (selectedMeasurements) => {
-    if (selectedMeasurements.length === 0) {
-      setAvailableFieldTypes([]);
-      setAvailableTagKeys([]);
+  // OPTIMIZACIÓN PRINCIPAL: Cargar todo de una vez con cache
+  const loadBucketData = async () => {
+    // Verificar cache primero
+    if (bucketCache.has(selectedBucket)) {
+      console.log('📦 Loading bucket data from cache:', selectedBucket);
+      const cachedData = bucketCache.get(selectedBucket);
+      setMeasurements(cachedData.measurements);
+      setFields(cachedData.fields);
+      setAvailableTagKeys(cachedData.availableTagKeys);
       return;
     }
 
-    setLoadingStates(prev => ({ ...prev, fields: true }));
+    console.log('🔄 Loading fresh bucket data for:', selectedBucket);
+    setLoadingStates(prev => ({ ...prev, bucketData: true }));
+    
     try {
+      // Hacer una sola llamada a explore que nos da todo
       const exploreResponse = await fetch('/api/influxdb/explore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bucket: selectedBucket })
       });
+      
+      const exploreData = await exploreResponse.json();
+      console.log('📊 Explore data received:', exploreData);
 
-      let allAvailableFields = [];
-      let customTags = [];
+      // Procesar datos
+      const measurementSet = new Set();
+      const fieldSet = new Set();
+      const tagSet = new Set();
 
-      if (exploreResponse.ok) {
-        const exploreData = await exploreResponse.json();
-        allAvailableFields = exploreData.availableTags || [];
-
-        const systemFields = ['_measurement', '_field', '_time', '_value'];
-        customTags = allAvailableFields.filter(field => !systemFields.includes(field));
-
-        console.log('📊 Todos los campos disponibles:', allAvailableFields);
-        console.log('🏷️ Tags personalizados:', customTags);
-      } else {
-        const tagKeysResponse = await fetch('/api/influxdb/tag-keys', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            bucket: selectedBucket,
-            measurement: selectedMeasurements[0]
-          })
-        });
-
-        if (tagKeysResponse.ok) {
-          const tagKeysData = await tagKeysResponse.json();
-          customTags = tagKeysData.tagKeys || [];
-        }
-
-        const systemFields = ['_measurement', '_field', '_time', '_value'];
-        allAvailableFields = [...systemFields, ...customTags];
-      }
-
-      setAvailableFieldTypes(allAvailableFields);
-      setAvailableTagKeys(customTags);
-
-    } catch (error) {
-      console.error('Error loading field types:', error);
-      const systemFields = ['_measurement', '_field', '_time', '_value'];
-      const fallbackTags = ['PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type'];
-      setAvailableFieldTypes([...systemFields, ...fallbackTags]);
-      setAvailableTagKeys(fallbackTags);
-    }
-    setLoadingStates(prev => ({ ...prev, fields: false }));
-  };
-
-  const loadFieldValuesDirectly = async (fieldType, filterType = 'primary') => {
-    const loadingKey = filterType === 'primary' ? 'primaryValues' : 'secondaryValues';
-    setLoadingStates(prev => ({ ...prev, [loadingKey]: true }));
-    
-    try {
-      console.log(`🔍 Cargando valores para campo: ${fieldType} (${filterType})`);
-
-      if (fieldType === '_measurement') {
-        if (filterType === 'primary') {
-          setPrimaryFieldValues(measurements);
-        } else {
-          setSecondaryFieldValues(measurements);
-        }
-        setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
-        return;
-      } else if (fieldType === '_time' || fieldType === '_value') {
-        const continuousMessage = ['(valores continuos - usar filtro de tiempo)'];
-        if (filterType === 'primary') {
-          setPrimaryFieldValues(continuousMessage);
-        } else {
-          setSecondaryFieldValues(continuousMessage);
-        }
-        setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
-        return;
-      }
-
-      let query;
-      if (fieldType === '_field') {
-        query = `
-from(bucket: "${selectedBucket}")
-  |> range(start: -24h)
-  |> keep(columns: ["_field"])
-  |> distinct(column: "_field")
-  |> limit(n: 100)`;
-      } else {
-        query = `
-from(bucket: "${selectedBucket}")
-  |> range(start: -24h)
-  |> filter(fn: (r) => exists r.${fieldType})
-  |> keep(columns: ["${fieldType}"])
-  |> distinct(column: "${fieldType}")
-  |> limit(n: 100)`;
-      }
-
-      console.log('📝 Query para cargar valores:', query);
-
-      const response = await fetch('/api/influxdb/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('📊 Resultado de query:', result);
-
-        const lines = result.data.trim().split('\n');
-        const values = [];
-
+      // Extraer measurements y fields de los datos de muestra
+      if (exploreData.sampleData) {
+        const lines = exploreData.sampleData.split('\n');
         if (lines.length > 1) {
           const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-          const valueIndex = fieldType === '_field' ? headers.indexOf('_value') : headers.indexOf(fieldType);
-
-          if (valueIndex !== -1) {
-            for (let i = 1; i < lines.length; i++) {
-              if (!lines[i].trim()) continue;
-              const row = lines[i].split(',');
-              if (row[valueIndex]) {
-                const value = row[valueIndex].replace(/"/g, '').trim();
-                if (value && value !== '' && value !== 'null' && !values.includes(value)) {
-                  values.push(value);
-                }
+          
+          // Añadir todos los headers como posibles tags (excepto sistema)
+          headers.forEach(header => {
+            if (header && header !== 'result' && header !== 'table') {
+              if (!header.startsWith('_') || ['_measurement', '_field', '_time', '_value'].includes(header)) {
+                // Skip, these are system fields
+              } else {
+                tagSet.add(header);
               }
+            }
+          });
+
+          const measurementIndex = headers.indexOf('_measurement');
+          const fieldIndex = headers.indexOf('_field');
+
+          // Extraer measurements y fields únicos
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            
+            const row = lines[i].split(',');
+            
+            // Measurements
+            if (measurementIndex !== -1 && row[measurementIndex]) {
+              const measurement = row[measurementIndex].replace(/"/g, '').trim();
+              if (measurement) measurementSet.add(measurement);
+            }
+            
+            // Fields
+            if (fieldIndex !== -1 && row[fieldIndex]) {
+              const field = row[fieldIndex].replace(/"/g, '').trim();
+              if (field) fieldSet.add(field);
             }
           }
         }
+      }
 
-        console.log('✅ Valores extraídos:', values);
-        if (filterType === 'primary') {
-          setPrimaryFieldValues(values.sort());
-        } else {
-          setSecondaryFieldValues(values.sort());
+      // Agregar tags disponibles del explore
+      if (exploreData.availableTags) {
+        exploreData.availableTags.forEach(tag => {
+          if (!tag.startsWith('_') || ['_measurement', '_field', '_time', '_value'].includes(tag)) {
+            // Skip system fields or add them separately
+          } else {
+            tagSet.add(tag);
+          }
+        });
+      }
+
+      // Fallback: si no tenemos measurements, intentar con measurements API
+      if (measurementSet.size === 0) {
+        try {
+          const measurementsResponse = await fetch('/api/influxdb/measurements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bucket: selectedBucket })
+          });
+          const measurementsData = await measurementsResponse.json();
+          if (measurementsData.measurements) {
+            measurementsData.measurements.forEach(m => measurementSet.add(m));
+          }
+        } catch (error) {
+          console.warn('Failed to load measurements fallback:', error);
         }
-      } else {
-        console.error('❌ Error en query:', response.status);
-        if (filterType === 'primary') {
-          setPrimaryFieldValues([]);
-        } else {
-          setSecondaryFieldValues([]);
-        }
       }
+
+      const processedData = {
+        measurements: Array.from(measurementSet).sort(),
+        fields: Array.from(fieldSet).sort(), 
+        availableTagKeys: Array.from(tagSet).sort()
+      };
+
+      console.log('✅ Processed bucket data:', processedData);
+
+      // Guardar en cache
+      setBucketCache(prev => new Map(prev).set(selectedBucket, processedData));
+      
+      // Actualizar estado
+      setMeasurements(processedData.measurements);
+      setFields(processedData.fields);
+      setAvailableTagKeys(processedData.availableTagKeys);
+
     } catch (error) {
-      console.error('❌ Error cargando valores directamente:', error);
-      if (filterType === 'primary') {
-        setPrimaryFieldValues([]);
-      } else {
-        setSecondaryFieldValues([]);
-      }
-    }
-    setLoadingStates(prev => ({ ...prev, [loadingKey]: false }));
-  };
-
-  const loadTagValues = async (tagKey) => {
-    if (!tagKey || selectedMeasurements.length === 0) return;
-
-    try {
-      const tagValuesResponse = await fetch('/api/influxdb/tag-values', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bucket: selectedBucket,
-          measurement: selectedMeasurements[0],
-          tagKey: tagKey
-        })
-      });
-
-      if (tagValuesResponse.ok) {
-        const tagValuesData = await tagValuesResponse.json();
-        setTagValues(prev => ({
-          ...prev,
-          [tagKey]: tagValuesData.values || []
-        }));
-      } else {
-        console.error('Error loading tag values for', tagKey);
-        setTagValues(prev => ({
-          ...prev,
-          [tagKey]: []
-        }));
-      }
-    } catch (error) {
-      console.error('Error loading tag values:', error);
-      setTagValues(prev => ({
-        ...prev,
-        [tagKey]: []
-      }));
-    }
-  };
-
-  const handleBucketChange = (bucketName) => {
-    setSelectedBucket(bucketName);
-  };
-
-  const handleMeasurementChange = (measurement) => {
-    const newSelected = selectedMeasurements.includes(measurement)
-      ? selectedMeasurements.filter(m => m !== measurement)
-      : [...selectedMeasurements, measurement];
-
-    setSelectedMeasurements(newSelected);
-
-    // Resetear solo los filtros de tags
-    setSelectedTagKeys([]);
-    setTagValues({});
-    setSelectedTagValues({});
-
-    if (newSelected.length > 0) {
-      loadFieldTypes(newSelected);
-    } else {
-      setAvailableFieldTypes([]);
+      console.error('❌ Error loading bucket data:', error);
+      
+      // Fallback básico
+      setMeasurements([]);
+      setFields([]);
       setAvailableTagKeys([]);
     }
+    
+    setLoadingStates(prev => ({ ...prev, bucketData: false }));
   };
 
-  // Manejadores para filtro primario
-  const handlePrimaryFilterTypeChange = (filterType) => {
-    setPrimaryFilter({
-      type: filterType,
-      values: []
-    });
-    setPrimaryFieldValues([]);
+  const addFilter = useCallback(() => {
+    console.log('➕ Adding filter...');
+    const newFilter = {
+      id: Date.now(),
+      key: '',
+      selectedValues: [],
+      availableValues: [],
+      loading: false,
+      timeStart: '',
+      timeEnd: '',
+      valueMin: '',
+      valueMax: ''
+    };
+    setFilters(prev => [...prev, newFilter]);
+  }, []);
 
-    if (filterType === '_measurement') {
-      setPrimaryFieldValues(measurements);
-    } else if (filterType === '_time' || filterType === '_value') {
-      setPrimaryFieldValues(['(valores continuos - usar filtro de tiempo)']);
-    } else if (filterType && filterType !== '') {
-      loadFieldValuesDirectly(filterType, 'primary');
-    }
-  };
+  const removeFilter = useCallback((filterId) => {
+    setFilters(prev => prev.filter(filter => filter.id !== filterId));
+  }, []);
 
-  const handlePrimaryFilterValueChange = (value) => {
-    const newValues = primaryFilter.values.includes(value)
-      ? primaryFilter.values.filter(v => v !== value)
-      : [...primaryFilter.values, value];
+  // OPTIMIZACIÓN: Memoizar la carga de valores de filtros
+  const updateFilterKey = useCallback(async (filterId, key) => {
+    console.log('🔄 Updating filter key:', key);
+    
+    setFilters(prevFilters =>
+      prevFilters.map(filter =>
+        filter.id === filterId
+          ? { 
+              ...filter, 
+              key, 
+              selectedValues: [], 
+              availableValues: [], 
+              loading: !['_time', '_value'].includes(key), // Solo loading si necesita cargar valores
+              timeStart: '', 
+              timeEnd: '', 
+              valueMin: '', 
+              valueMax: '' 
+            }
+          : filter
+      )
+    );
 
-    setPrimaryFilter(prev => ({
-      ...prev,
-      values: newValues
-    }));
+    if (key && !['_time', '_value'].includes(key)) {
+      try {
+        let availableValues = [];
 
-    // Si el filtro primario es _measurement, actualizar selectedMeasurements
-    if (primaryFilter.type === '_measurement') {
-      setSelectedMeasurements(newValues);
-      if (newValues.length > 0) {
-        loadFieldTypes(newValues);
+        if (key === '_measurement') {
+          availableValues = measurements;
+        } else if (key === '_field') {
+          availableValues = fields;
+        } else {
+          // Es un tag personalizado, cargar sus valores
+          if (measurements.length > 0) {
+            console.log('🔍 Loading tag values for:', key);
+            const response = await fetch('/api/influxdb/tag-values', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucket: selectedBucket,
+                measurement: measurements[0],
+                tagKey: key
+              })
+            });
+            const data = await response.json();
+            availableValues = data.values || [];
+          }
+        }
+
+        setFilters(prevFilters =>
+          prevFilters.map(filter =>
+            filter.id === filterId
+              ? { ...filter, availableValues, loading: false }
+              : filter
+          )
+        );
+      } catch (error) {
+        console.error('Error loading filter values:', error);
+        setFilters(prevFilters =>
+          prevFilters.map(filter =>
+            filter.id === filterId
+              ? { ...filter, availableValues: [], loading: false }
+              : filter
+          )
+        );
       }
     }
-  };
+  }, [selectedBucket, measurements, fields]);
 
-  // Manejadores para filtro secundario
-  const handleSecondaryFilterTypeChange = (filterType) => {
-    setSecondaryFilter({
-      type: filterType,
-      values: []
-    });
-    setSecondaryFieldValues([]);
+  const updateFilterValues = useCallback((filterId, values) => {
+    setFilters(prevFilters =>
+      prevFilters.map(filter =>
+        filter.id === filterId
+          ? { ...filter, selectedValues: values }
+          : filter
+      )
+    );
+  }, []);
 
-    if (filterType === '_measurement') {
-      setSecondaryFieldValues(measurements);
-    } else if (filterType === '_time' || filterType === '_value') {
-      setSecondaryFieldValues(['(valores continuos - usar filtro de tiempo)']);
-    } else if (filterType && filterType !== '' && filterType !== primaryFilter.type) {
-      loadFieldValuesDirectly(filterType, 'secondary');
-    }
-  };
+  const updateFilterTime = useCallback((filterId, type, value) => {
+    setFilters(prevFilters =>
+      prevFilters.map(filter =>
+        filter.id === filterId
+          ? { ...filter, [type === 'start' ? 'timeStart' : 'timeEnd']: value }
+          : filter
+      )
+    );
+  }, []);
 
-  const handleSecondaryFilterValueChange = (value) => {
-    const newValues = secondaryFilter.values.includes(value)
-      ? secondaryFilter.values.filter(v => v !== value)
-      : [...secondaryFilter.values, value];
+  const updateFilterValue = useCallback((filterId, type, value) => {
+    setFilters(prevFilters =>
+      prevFilters.map(filter =>
+        filter.id === filterId
+          ? { ...filter, [type === 'min' ? 'valueMin' : 'valueMax']: value }
+          : filter
+      )
+    );
+  }, []);
 
-    setSecondaryFilter(prev => ({
-      ...prev,
-      values: newValues
-    }));
-  };
-
-  const handleTagKeyChange = (tagKey) => {
-    const newSelected = selectedTagKeys.includes(tagKey)
-      ? selectedTagKeys.filter(k => k !== tagKey)
-      : [...selectedTagKeys, tagKey];
-
-    setSelectedTagKeys(newSelected);
-
-    if (!selectedTagKeys.includes(tagKey)) {
-      loadTagValues(tagKey);
-    }
-  };
-
-  const handleTagValueChange = (tagKey, value) => {
-    const currentValues = selectedTagValues[tagKey] || [];
-    const newValues = currentValues.includes(value)
-      ? currentValues.filter(v => v !== value)
-      : [...currentValues, value];
-
-    setSelectedTagValues(prev => ({
-      ...prev,
-      [tagKey]: newValues
-    }));
-  };
-
-  const buildFluxQuery = () => {
+  const buildFluxQuery = useCallback(() => {
     if (!selectedBucket) {
-      return 'Error: Debe seleccionar un bucket primero';
+      setRawQuery('// Select a bucket to start building your query');
+      return;
     }
 
     let query = `from(bucket: "${selectedBucket}")\n`;
+    query += `  |> range(start: ${timeRange.start}, stop: ${timeRange.stop})\n`;
 
-    if (timeRange.type === 'auto') {
-      query += `  |> range(start: ${timeRange.from}, stop: ${timeRange.to})\n`;
-    } else {
-      query += `  |> range(start: ${timeRange.customFrom}, stop: ${timeRange.customTo})\n`;
-    }
+    // Add filters
+    filters.forEach(filter => {
+      if (!filter.key) return;
 
-    // Aplicar filtro primario
-    if (primaryFilter.type && primaryFilter.values.length > 0) {
-      if (primaryFilter.type === '_measurement') {
-        if (primaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r._measurement == "${primaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r._measurement, set: [${valuesList}]))\n`;
-        }
-      } else if (primaryFilter.type === '_field') {
-        if (primaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r._field == "${primaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r._field, set: [${valuesList}]))\n`;
-        }
-      } else if (!primaryFilter.type.startsWith('_') || primaryFilter.type === '_value') {
-        if (primaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r.${primaryFilter.type} == "${primaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = primaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r.${primaryFilter.type}, set: [${valuesList}]))\n`;
-        }
-      }
-    }
+      const key = filter.key;
 
-    // Aplicar filtro secundario
-    if (secondaryFilter.type && secondaryFilter.values.length > 0) {
-      if (secondaryFilter.type === '_measurement') {
-        if (secondaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r._measurement == "${secondaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r._measurement, set: [${valuesList}]))\n`;
+      if (key === '_time') {
+        if (filter.timeStart || filter.timeEnd) {
+          const start = filter.timeStart ? new Date(filter.timeStart).toISOString() : timeRange.start;
+          const stop = filter.timeEnd ? new Date(filter.timeEnd).toISOString() : timeRange.stop;
+          query += `  |> range(start: ${start}, stop: ${stop})\n`;
         }
-      } else if (secondaryFilter.type === '_field') {
-        if (secondaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r._field == "${secondaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r._field, set: [${valuesList}]))\n`;
+      } else if (key === '_value') {
+        if (filter.valueMin !== '' || filter.valueMax !== '') {
+          const conditions = [];
+          if (filter.valueMin !== '') conditions.push(`r._value >= ${filter.valueMin}`);
+          if (filter.valueMax !== '') conditions.push(`r._value <= ${filter.valueMax}`);
+          if (conditions.length > 0) {
+            query += `  |> filter(fn: (r) => ${conditions.join(' and ')})\n`;
+          }
         }
-      } else if (!secondaryFilter.type.startsWith('_') || secondaryFilter.type === '_value') {
-        if (secondaryFilter.values.length === 1) {
-          query += `  |> filter(fn: (r) => r.${secondaryFilter.type} == "${secondaryFilter.values[0]}")\n`;
-        } else {
-          const valuesList = secondaryFilter.values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r.${secondaryFilter.type}, set: [${valuesList}]))\n`;
-        }
-      }
-    }
-
-    // Aplicar filtros de tags adicionales
-    Object.entries(selectedTagValues).forEach(([tagKey, values]) => {
-      if (values.length > 0) {
-        if (values.length === 1) {
-          query += `  |> filter(fn: (r) => r.${tagKey} == "${values[0]}")\n`;
-        } else {
-          const valuesList = values.map(v => `"${v}"`).join(', ');
-          query += `  |> filter(fn: (r) => contains(value: r.${tagKey}, set: [${valuesList}]))\n`;
+      } else { // equals operator for all other fields
+        if (filter.selectedValues.length > 0) {
+          if (filter.selectedValues.length === 1) {
+            query += `  |> filter(fn: (r) => r.${key} == "${filter.selectedValues[0]}")\n`;
+          } else {
+            const values = filter.selectedValues.map(v => `"${v}"`).join(', ');
+            query += `  |> filter(fn: (r) => contains(value: r.${key}, set: [${values}]))\n`;
+          }
         }
       }
     });
 
-    if (aggregateFunction !== 'none') {
-      query += `  |> aggregateWindow(every: 1m, fn: ${aggregateFunction}, createEmpty: false)\n`;
+    // Add aggregation if specified
+    if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
+      query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
 
     query += `  |> yield(name: "result")`;
-    return query;
-  };
+    setRawQuery(query);
+  }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction]);
 
   const executeQuery = async () => {
-    if (!selectedBucket) {
-      alert('Debe seleccionar un bucket primero');
+    const queryToExecute = useCustomQuery ? customQuery : rawQuery;
+
+    if (!queryToExecute || queryToExecute.includes('// Select a bucket')) {
+      alert('Please build a valid query first');
       return;
     }
 
-    // Verificar que al menos uno de los filtros tenga valores
-    const hasPrimaryFilter = primaryFilter.type && primaryFilter.values.length > 0;
-    const hasSecondaryFilter = secondaryFilter.type && secondaryFilter.values.length > 0;
-    const hasTagFilters = Object.values(selectedTagValues).some(values => values.length > 0);
-
-    if (!hasPrimaryFilter && !hasSecondaryFilter && !hasTagFilters) {
-      alert('Debe configurar al menos un filtro');
-      return;
-    }
-
-    setIsLoading(true);
+    setLoadingStates(prev => ({ ...prev, executing: true }));
     try {
-      const query = buildFluxQuery();
-
       const response = await fetch('/api/influxdb/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ query: queryToExecute })
       });
 
       const data = await response.json();
 
       if (response.ok) {
         setQueryResult({
-          query: data.query,
+          query: queryToExecute,
           rows: data.rows,
-          executionTime: data.executionTime || '150ms',
-          data: data.data
+          executionTime: data.executionTime || '0ms',
+          data: data.data,
+          success: true
         });
       } else {
-        console.error('Query error:', data.error);
         setQueryResult({
-          query: query,
+          query: queryToExecute,
           rows: 0,
           executionTime: '0ms',
           data: '',
-          error: data.error
+          error: data.details || data.error || 'Unknown error',
+          success: false
         });
       }
     } catch (error) {
       console.error('Error executing query:', error);
       setQueryResult({
-        query: buildFluxQuery(),
+        query: queryToExecute,
         rows: 0,
         executionTime: '0ms',
         data: '',
-        error: error.message
+        error: error.message,
+        success: false
       });
     }
-    setIsLoading(false);
+    setLoadingStates(prev => ({ ...prev, executing: false }));
   };
 
   const exportData = (format) => {
     if (!queryResult || !queryResult.data) {
-      alert('No hay datos para exportar. Ejecuta una consulta primero.');
+      alert('No data to export. Run a query first.');
       return;
     }
 
@@ -650,31 +469,66 @@ from(bucket: "${selectedBucket}")
       a.click();
       URL.revokeObjectURL(url);
     } else if (format === 'json') {
-      const jsonData = JSON.stringify(queryResult, null, 2);
-      const blob = new Blob([jsonData], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `influxdb-export-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // Convert CSV to JSON for better structure
+      const lines = queryResult.data.split('\n').filter(line => line.trim());
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+        const jsonData = lines.slice(1).map(line => {
+          const values = line.split(',').map(v => v.replace(/"/g, '').trim());
+          const obj = {};
+          headers.forEach((header, index) => {
+            obj[header] = values[index] || '';
+          });
+          return obj;
+        });
+
+        const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `influxdb-export-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     }
   };
 
+  const copyQuery = () => {
+    const queryToCopy = useCustomQuery ? customQuery : rawQuery;
+    navigator.clipboard.writeText(queryToCopy);
+  };
+
+  // Memoizar opciones disponibles para filtros
+  const filterOptions = useMemo(() => {
+    const systemFields = [
+      { label: '_measurement', value: '_measurement' },
+      { label: '_field', value: '_field' },
+      { label: '_time', value: '_time' },
+      { label: '_value', value: '_value' }
+    ];
+
+    const tagOptions = availableTagKeys.map(tag => ({
+      label: tag,
+      value: tag
+    }));
+
+    return { systemFields, tagOptions };
+  }, [availableTagKeys]);
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-primary">Gestión de Documentos</h1>
-          <p className="text-sm text-secondary">Consulta y exportación de datos desde InfluxDB</p>
+          <h1 className="text-2xl font-semibold text-primary">Data Explorer</h1>
+          <p className="text-sm text-secondary">Query and export data from InfluxDB</p>
         </div>
 
         <div className="flex gap-3">
           <button
             onClick={() => exportData('csv')}
             className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            disabled={!queryResult || !queryResult.data}
+            disabled={!queryResult?.success}
           >
             <Download size={16} />
             CSV
@@ -682,7 +536,7 @@ from(bucket: "${selectedBucket}")
           <button
             onClick={() => exportData('json')}
             className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            disabled={!queryResult || !queryResult.data}
+            disabled={!queryResult?.success}
           >
             <Download size={16} />
             JSON
@@ -690,415 +544,415 @@ from(bucket: "${selectedBucket}")
         </div>
       </div>
 
-      {/* FROM Section */}
-      <div className="bg-panel rounded-lg p-4">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-          <Database size={16} />
-          FROM
-        </h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Query Builder */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Bucket Selection */}
+          <div className="bg-panel rounded-lg p-4">
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+              <Database size={16} />
+              1. Select Bucket
+              {loadingStates.bucketData && (
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              )}
+            </h3>
+            <select
+              value={selectedBucket}
+              onChange={(e) => setSelectedBucket(e.target.value)}
+              className="w-full p-3 border border-custom rounded-lg bg-panel text-primary"
+              disabled={loadingStates.buckets || loadingStates.bucketData}
+            >
+              <option value="">Choose a bucket...</option>
+              {buckets.map(bucket => (
+                <option key={bucket} value={bucket}>{bucket}</option>
+              ))}
+            </select>
+          </div>
 
-        <select
-          value={selectedBucket}
-          onChange={(e) => handleBucketChange(e.target.value)}
-          className="w-full p-2 border border-custom rounded-md bg-panel text-primary"
-          disabled={loadingStates.buckets}
-        >
-          <option value="">Seleccionar bucket...</option>
-          {buckets.map(bucket => (
-            <option key={bucket} value={bucket}>{bucket}</option>
-          ))}
-        </select>
+          {/* Filters */}
+          {selectedBucket && (
+            <div className="bg-panel rounded-lg p-4">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+                <Filter size={16} />
+                2. Filter Data
+              </h3>
 
-        {!selectedBucket && (
-          <p className="text-sm text-secondary mt-2">
-            Selecciona un bucket para comenzar a filtrar los datos
-          </p>
-        )}
-      </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-primary">Filters</label>
+                  <button
+                    onClick={addFilter}
+                    className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
+                    disabled={loadingStates.bucketData}
+                  >
+                    <Plus size={12} />
+                    Add Filter
+                  </button>
+                </div>
 
-      {/* Filters Section */}
-      {selectedBucket && (
-        <div className="bg-panel rounded-lg p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-            <Filter size={16} />
-            Filtros
-          </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {filters.map(filter => (
+                    <div key={filter.id} className="border border-custom rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-3">
+                        {/* Filter Key Selection */}
+                        <select
+                          value={filter.key}
+                          onChange={(e) => updateFilterKey(filter.id, e.target.value)}
+                          className="flex-1 p-2 border border-custom rounded bg-panel text-primary text-sm"
+                          disabled={loadingStates.bucketData}
+                        >
+                          <option value="">Select filter...</option>
+                          <optgroup label="System Fields">
+                            {filterOptions.systemFields.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </optgroup>
+                          {filterOptions.tagOptions.length > 0 && (
+                            <optgroup label="Tag Keys">
+                              {filterOptions.tagOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Filtro Primario */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Filtro Primario</label>
-                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
-                  {primaryFilter.values.length}
-                </span>
-              </div>
-
-              <select
-                value={primaryFilter.type}
-                onChange={(e) => handlePrimaryFilterTypeChange(e.target.value)}
-                className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary mb-2"
-                disabled={loadingStates.primaryFilters}
-              >
-                <option value="">Seleccionar tipo de filtro...</option>
-                {loadingStates.primaryFilters ? (
-                  <option disabled>Cargando filtros...</option>
-                ) : (
-                  availablePrimaryFilters.map(filter => (
-                    <option key={filter} value={filter}>{filter}</option>
-                  ))
-                )}
-              </select>
-
-              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-                {!primaryFilter.type ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    Selecciona un tipo de filtro arriba
-                  </div>
-                ) : primaryFilter.type === '_measurement' ? (
-                  loadingStates.measurements ? (
-                    <div className="text-center py-2 text-secondary text-sm">
-                      <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                      Cargando measurements...
-                    </div>
-                  ) : measurements.length === 0 ? (
-                    <div className="text-center py-2 text-secondary text-sm">
-                      No hay measurements disponibles en este bucket
-                    </div>
-                  ) : (
-                    measurements.map(measurement => (
-                      <label key={measurement} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                        <input
-                          type="checkbox"
-                          checked={primaryFilter.values.includes(measurement)}
-                          onChange={() => handlePrimaryFilterValueChange(measurement)}
-                          className="rounded"
-                        />
-                        <span className="truncate text-primary">{measurement}</span>
-                      </label>
-                    ))
-                  )
-                ) : primaryFilter.type && primaryFieldValues.length === 0 && loadingStates.primaryValues ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                    Cargando valores...
-                  </div>
-                ) : primaryFieldValues.length === 0 ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    {primaryFilter.type === '_time' || primaryFilter.type === '_value' ?
-                      'Filtro de valores continuos - usar rango de tiempo' :
-                      'No hay valores disponibles para este filtro'
-                    }
-                  </div>
-                ) : (
-                  primaryFieldValues.map(value => (
-                    <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                      <input
-                        type="checkbox"
-                        checked={primaryFilter.values.includes(value)}
-                        onChange={() => handlePrimaryFilterValueChange(value)}
-                        className="rounded"
-                      />
-                      <span className="truncate text-primary">{value}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Filtro Secundario */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Filtro Secundario</label>
-                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
-                  {secondaryFilter.values.length}
-                </span>
-              </div>
-
-              <select
-                value={secondaryFilter.type}
-                onChange={(e) => handleSecondaryFilterTypeChange(e.target.value)}
-                className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                disabled={availableFieldTypes.length === 0}
-              >
-                <option value="">Seleccionar tipo</option>
-                {availableFieldTypes
-                  .filter(fieldType => fieldType !== primaryFilter.type)
-                  .map(fieldType => (
-                    <option key={fieldType} value={fieldType}>{fieldType}</option>
-                  ))
-                }
-              </select>
-
-              <div className="max-h-32 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-                {!secondaryFilter.type ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    Selecciona un tipo de filtro secundario
-                  </div>
-                ) : secondaryFilter.type && secondaryFieldValues.length === 0 && loadingStates.secondaryValues ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                    Cargando valores...
-                  </div>
-                ) : secondaryFieldValues.length === 0 ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    {secondaryFilter.type === '_time' || secondaryFilter.type === '_value' ?
-                      'Filtro de valores continuos - usar rango de tiempo' :
-                      'No hay valores disponibles'
-                    }
-                  </div>
-                ) : (
-                  secondaryFieldValues.map(value => (
-                    <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                      <input
-                        type="checkbox"
-                        checked={secondaryFilter.values.includes(value)}
-                        onChange={() => handleSecondaryFilterValueChange(value)}
-                        className="rounded"
-                      />
-                      <span className="truncate text-primary">{value}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Tag Keys */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Tag Keys</label>
-                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
-                  {selectedTagKeys.length}
-                </span>
-              </div>
-
-              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-                {availableTagKeys.length === 0 ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    {selectedMeasurements.length === 0 ? 
-                      'Selecciona measurements primero' : 
-                      'No hay tag keys disponibles'
-                    }
-                  </div>
-                ) : (
-                  availableTagKeys
-                    .filter(tagKey => tagKey !== primaryFilter.type && tagKey !== secondaryFilter.type)
-                    .map(tagKey => (
-                      <label key={tagKey} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                        <input
-                          type="checkbox"
-                          checked={selectedTagKeys.includes(tagKey)}
-                          onChange={() => handleTagKeyChange(tagKey)}
-                          className="rounded"
-                        />
-                        <span className="truncate text-primary">{tagKey}</span>
-                      </label>
-                    ))
-                )}
-              </div>
-            </div>
-
-            {/* Tag Values */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-primary">Tag Values</label>
-                <span className="px-2 py-1 bg-header-table text-primary rounded text-xs">
-                  {Object.values(selectedTagValues).flat().length}
-                </span>
-              </div>
-
-              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-2 bg-panel">
-                {selectedTagKeys.length === 0 ? (
-                  <div className="text-center py-2 text-secondary text-sm">
-                    Selecciona tag keys primero
-                  </div>
-                ) : (
-                  selectedTagKeys.map(tagKey => (
-                    <div key={tagKey} className="space-y-1">
-                      <div className="text-xs font-semibold text-secondary border-b border-custom pb-1">
-                        {tagKey}
+                        {/* Remove Filter Button */}
+                        <button
+                          onClick={() => removeFilter(filter.id)}
+                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded cursor-pointer"
+                          title="Remove filter"
+                        >
+                          <X size={16} />
+                        </button>
                       </div>
-                      {tagValues[tagKey] ? (
-                        tagValues[tagKey].map(value => (
-                          <label key={`${tagKey}-${value}`} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                            <input
-                              type="checkbox"
-                              checked={(selectedTagValues[tagKey] || []).includes(value)}
-                              onChange={() => handleTagValueChange(tagKey, value)}
-                              className="rounded"
-                            />
-                            <span className="truncate text-primary">{value}</span>
-                          </label>
-                        ))
-                      ) : (
-                        <div className="text-xs text-secondary flex items-center gap-1">
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          Cargando...
+
+                      {/* Filter Values */}
+                      {filter.key && (
+                        <div>
+                          {filter.key === '_time' ? (
+                            <div className="grid grid-cols-1 gap-2">
+                              <input
+                                type="datetime-local"
+                                value={filter.timeStart || ''}
+                                onChange={(e) => updateFilterTime(filter.id, 'start', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Start time"
+                              />
+                              <input
+                                type="datetime-local"
+                                value={filter.timeEnd || ''}
+                                onChange={(e) => updateFilterTime(filter.id, 'end', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="End time"
+                              />
+                            </div>
+                          ) : filter.key === '_value' ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="number"
+                                value={filter.valueMin || ''}
+                                onChange={(e) => updateFilterValue(filter.id, 'min', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Min value"
+                              />
+                              <input
+                                type="number"
+                                value={filter.valueMax || ''}
+                                onChange={(e) => updateFilterValue(filter.id, 'max', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Max value"
+                              />
+                            </div>
+                          ) : (
+                            <div className="max-h-40 overflow-y-auto space-y-1 border border-custom rounded p-2 bg-header-table">
+                              {filter.loading ? (
+                                <div className="text-center py-2 text-secondary text-sm">
+                                  <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
+                                  Loading values...
+                                </div>
+                              ) : filter.availableValues.length === 0 ? (
+                                <div className="text-center py-2 text-secondary text-sm">
+                                  No values found
+                                </div>
+                              ) : (
+                                filter.availableValues.map(value => (
+                                  <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={filter.selectedValues.includes(value)}
+                                      onChange={(e) => {
+                                        const newValues = e.target.checked
+                                          ? [...filter.selectedValues, value]
+                                          : filter.selectedValues.filter(v => v !== value);
+                                        updateFilterValues(filter.id, newValues);
+                                      }}
+                                      className="rounded"
+                                    />
+                                    <span className="truncate text-primary">{value}</span>
+                                  </label>
+                                ))
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  ))
+                  ))}
+                </div>
+
+                {filters.length === 0 && (
+                  <div className="text-center py-8 text-secondary text-sm border border-custom rounded-lg bg-header-table">
+                    <Filter size={24} className="mx-auto mb-2 opacity-50" />
+                    <div>No filters added</div>
+                    <div className="text-xs mt-1">Click "Add Filter" to start filtering your data</div>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* Time Range */}
-      {selectedBucket && (
-        <div className="bg-panel rounded-lg p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-            <Calendar size={16} />
-            Rango de Tiempo
-          </h3>
+        {/* Query Panel - Resto del código igual */}
+        <div className="space-y-6">
+          {/* Time Range */}
+          {selectedBucket && (
+            <div className="bg-panel rounded-lg p-4">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+                <Calendar size={16} />
+                Time Range
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-primary">Start</label>
+                  <select
+                    value={timeRange.start}
+                    onChange={(e) => setTimeRange({ ...timeRange, start: e.target.value })}
+                    className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm"
+                  >
+                    {timeRangePresets.map(preset => (
+                      <option key={preset.value} value={preset.value}>{preset.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-primary">Stop</label>
+                  <input
+                    type="text"
+                    value={timeRange.stop}
+                    onChange={(e) => setTimeRange({ ...timeRange, stop: e.target.value })}
+                    className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm"
+                    placeholder="now"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="flex gap-2 mb-2">
+          {/* Aggregation - AÑADIR ESTO */}
+          {selectedBucket && (
+            <div className="bg-panel rounded-lg p-4">
+              <h3 className="text-sm font-semibold mb-3 text-primary">Aggregate (Optional)</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-primary">Window Period</label>
+                  <select
+                    value={windowPeriod}
+                    onChange={(e) => setWindowPeriod(e.target.value)}
+                    className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm"
+                  >
+                    {windowPeriods.map(period => (
+                      <option key={period.value} value={period.value}>{period.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-primary">Function</label>
+                  <select
+                    value={aggregateFunction}
+                    onChange={(e) => setAggregateFunction(e.target.value)}
+                    className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm"
+                  >
+                    {aggregationFunctions.map(func => (
+                      <option key={func} value={func}>{func}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Query Display */}
+          <div className="bg-panel rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-primary">Query</h3>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setTimeRange({ ...timeRange, type: 'custom' })}
-                  className={`px-3 py-1 text-sm rounded ${timeRange.type === 'custom' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
+                  onClick={() => setUseCustomQuery(!useCustomQuery)}
+                  className={`px-3 py-1 text-xs rounded cursor-pointer ${useCustomQuery
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-header-table text-primary border border-custom'
+                    }`}
                 >
-                  CUSTOM
+                  Custom
                 </button>
                 <button
-                  onClick={() => setTimeRange({ ...timeRange, type: 'auto' })}
-                  className={`px-3 py-1 text-sm rounded ${timeRange.type === 'auto' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
+                  onClick={copyQuery}
+                  className="p-1 text-secondary hover:text-primary cursor-pointer"
+                  title="Copy query"
                 >
-                  AUTO
+                  <Copy size={16} />
                 </button>
               </div>
+            </div>
 
-              {timeRange.type === 'auto' ? (
-                <select
-                  value={`${timeRange.from}-${timeRange.to}`}
-                  onChange={(e) => {
-                    const [from, to] = e.target.value.split('-');
-                    setTimeRange({ ...timeRange, from, to });
-                  }}
-                  className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                >
-                  <option value="now-5m-now">Last 5 minutes</option>
-                  <option value="now-1h-now">Last 1 hour</option>
-                  <option value="now-6h-now">Last 6 hours</option>
-                  <option value="now-24h-now">Last 24 hours</option>
-                  <option value="now-7d-now">Last 7 days</option>
-                </select>
+            {useCustomQuery ? (
+              <textarea
+                value={customQuery}
+                onChange={(e) => setCustomQuery(e.target.value)}
+                className="w-full h-48 p-3 border border-custom rounded-lg bg-header-table text-primary font-mono text-sm resize-none"
+                placeholder="Enter your custom Flux query here..."
+              />
+            ) : (
+              <div className="bg-header-table border border-custom rounded-lg p-3 h-48 overflow-auto">
+                <pre className="text-primary font-mono text-sm whitespace-pre-wrap">{rawQuery}</pre>
+              </div>
+            )}
+          </div>
+
+          {/* Execute Button */}
+          <button
+            onClick={executeQuery}
+            disabled={loadingStates.executing || (!useCustomQuery && !selectedBucket)}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {loadingStates.executing ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Play size={16} />
+            )}
+            {loadingStates.executing ? 'Running Query...' : 'Run Query'}
+          </button>
+
+          {/* Results Summary */}
+          {queryResult && (
+            <div className="bg-panel rounded-lg p-4">
+              <h3 className="text-sm font-semibold mb-3 text-primary">Results</h3>
+
+              {queryResult.success ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                      <div className="text-lg font-bold text-blue-500">{queryResult.rows}</div>
+                      <div className="text-xs text-secondary">Rows</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-green-500">{queryResult.executionTime}</div>
+                      <div className="text-xs text-secondary">Time</div>
+                    </div>
+                  </div>
+
+                  {queryResult.data && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-primary">Preview</span>
+                        <button
+                          onClick={() => setShowAdvanced(!showAdvanced)}
+                          className="flex items-center gap-1 text-xs text-secondary hover:text-primary cursor-pointer"
+                        >
+                          {showAdvanced ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          {showAdvanced ? 'Hide' : 'Show'} Data
+                        </button>
+                      </div>
+
+                      {showAdvanced && (
+                        <div className="bg-header-table border border-custom rounded-lg p-3 max-h-40 overflow-auto">
+                          <pre className="text-primary font-mono text-xs whitespace-pre-wrap">
+                            {queryResult.data.split('\n').slice(0, 10).join('\n')}
+                            {queryResult.data.split('\n').length > 10 && '\n... (more data available)'}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
-                <div className="space-y-2">
-                  <input
-                    type="datetime-local"
-                    value={timeRange.customFrom}
-                    onChange={(e) => setTimeRange({ ...timeRange, customFrom: e.target.value })}
-                    className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                  />
-                  <input
-                    type="datetime-local"
-                    value={timeRange.customTo}
-                    onChange={(e) => setTimeRange({ ...timeRange, customTo: e.target.value })}
-                    className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                  />
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                  <div className="text-red-800 dark:text-red-200 font-medium text-sm mb-1">Query Error</div>
+                  <div className="text-red-600 dark:text-red-300 text-xs">{queryResult.error}</div>
                 </div>
               )}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2 text-primary">Función de Agregación</label>
-              <select
-                value={aggregateFunction}
-                onChange={(e) => setAggregateFunction(e.target.value)}
-                className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-              >
-                {aggregationFunctions.map(func => (
-                  <option key={func} value={func}>
-                    {func === 'none' ? 'Sin agregación' : func}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Execute Query */}
-      {selectedBucket && (
-        <div className="flex justify-center">
-          <button
-            onClick={executeQuery}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {isLoading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <FileText size={16} />
-            )}
-            {isLoading ? 'Ejecutando...' : 'Ejecutar consulta'}
-          </button>
-        </div>
-      )}
-
-      {/* Results */}
-      {queryResult && (
+      {/* Full Results View */}
+      {queryResult?.success && queryResult.data && (
         <div className="bg-panel rounded-lg p-4">
-          <h3 className="text-sm font-semibold mb-3 text-primary">Resultado</h3>
-
-          {queryResult.error ? (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
-              <h4 className="text-red-800 dark:text-red-200 font-medium mb-2">Error en la consulta</h4>
-              <p className="text-red-600 dark:text-red-300 text-sm">{queryResult.error}</p>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-primary">Query Results</h3>
+            <div className="flex items-center gap-4 text-sm text-secondary">
+              <span>{queryResult.rows} rows</span>
+              <span>{queryResult.executionTime}</span>
+              <span>{selectedBucket}</span>
             </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-500">{queryResult.rows}</div>
-                <div className="text-xs text-secondary">Filas</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-500">{queryResult.executionTime}</div>
-                <div className="text-xs text-secondary">Tiempo</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-500">{selectedBucket}</div>
-                <div className="text-xs text-secondary">Bucket</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-500">
-                  {primaryFilter.values.length + secondaryFilter.values.length + Object.values(selectedTagValues).flat().length}
-                </div>
-                <div className="text-xs text-secondary">Filtros</div>
-              </div>
-            </div>
-          )}
-
-          <div className="bg-header-table border border-custom p-3 rounded text-sm font-mono overflow-x-auto">
-            <pre className="text-primary whitespace-pre-wrap">{queryResult.query}</pre>
           </div>
 
-          {queryResult.data && queryResult.rows > 0 && (
-            <div className="mt-4">
-              <h4 className="text-sm font-medium mb-2 text-primary">Vista previa de datos (primeras 10 líneas)</h4>
-              <div className="bg-header-table border border-custom p-3 rounded text-xs font-mono overflow-x-auto max-h-60 overflow-y-auto">
-                <pre className="text-primary whitespace-pre-wrap">
-                  {queryResult.data.split('\n').slice(0, 11).join('\n')}
-                  {queryResult.data.split('\n').length > 11 && '\n... (más datos disponibles en la exportación)'}
-                </pre>
-              </div>
+          {/* Results Table */}
+          <div className="border border-custom rounded-lg overflow-hidden">
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full">
+                <thead className="bg-header-table border-b border-custom sticky top-0">
+                  <tr>
+                    {queryResult.data.split('\n')[0]?.split(',').map((header, index) => (
+                      <th key={index} className="text-left p-3 font-semibold text-primary text-sm border-r border-custom last:border-r-0">
+                        {header.replace(/"/g, '').trim()}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {queryResult.data.split('\n').slice(1, 101).map((row, rowIndex) => {
+                    if (!row.trim()) return null;
+                    return (
+                      <tr key={rowIndex} className="border-b border-custom hover-bg">
+                        {row.split(',').map((cell, cellIndex) => (
+                          <td key={cellIndex} className="p-3 text-sm text-primary border-r border-custom last:border-r-0">
+                            <div className="max-w-xs truncate" title={cell.replace(/"/g, '').trim()}>
+                              {cell.replace(/"/g, '').trim()}
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Mensaje de ayuda cuando no hay bucket seleccionado */}
-      {!selectedBucket && (
-        <div className="bg-panel rounded-lg p-8 text-center">
-          <Database size={48} className="mx-auto text-secondary mb-4" />
-          <h3 className="text-lg font-semibold text-primary mb-2">Selecciona un bucket para comenzar</h3>
-          <p className="text-secondary">
-            Elige un bucket de la lista desplegable de arriba para ver los measurements disponibles
-            y comenzar a construir tu consulta.
-          </p>
+            {queryResult.data.split('\n').length > 101 && (
+              <div className="bg-header-table border-t border-custom p-3 text-center text-sm text-secondary">
+                Showing first 100 rows of {queryResult.rows} total rows. Export to see all data.
+              </div>
+            )}
+          </div>
+
+          {/* Query Details */}
+          <div className="mt-4 bg-header-table border border-custom rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-primary">Executed Query</span>
+              <button
+                onClick={copyQuery}
+                className="flex items-center gap-1 text-xs text-secondary hover:text-primary cursor-pointer"
+              >
+                <Copy size={12} />
+                Copy
+              </button>
+            </div>
+            <pre className="text-primary font-mono text-xs whitespace-pre-wrap overflow-x-auto">
+              {queryResult.query}
+            </pre>
+          </div>
         </div>
       )}
     </div>

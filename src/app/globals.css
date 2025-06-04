@@ -218,6 +218,14 @@ select option {
   background-color: #7f1d1d33;
 }
 
+.hover-badge-red:hover {
+  background-color: #fee2e2;
+}
+
+.dark .hover-badge-red:hover {
+  background-color: #7f1d1d33;
+}
+
 .badge-yellow {
   background-color: #fef9c3;
 }
