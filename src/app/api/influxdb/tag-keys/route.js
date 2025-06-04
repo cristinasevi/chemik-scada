@@ -7,7 +7,7 @@ const INFLUX_ORG = process.env.INFLUXDB_ORG;
 export async function POST(request) {
   try {
     const { bucket, measurement } = await request.json();
-    console.log('🏷️ Loading tag keys for measurement:', measurement);
+    console.log('🏷️ Loading ALL tag keys for bucket:', bucket, 'measurement:', measurement);
     
     // Intentar múltiples rangos de tiempo para encontrar datos
     const timeRanges = ['-1h', '-24h', '-7d', '-30d'];
@@ -15,11 +15,21 @@ export async function POST(request) {
     for (const timeRange of timeRanges) {
       console.log(`🔍 Trying time range: ${timeRange}`);
       
-      const query = `
+      let query;
+      if (measurement) {
+        // Si tenemos measurement específico, filtrar por él
+        query = `
 from(bucket: "${bucket}")
   |> range(start: ${timeRange})
   |> filter(fn: (r) => r._measurement == "${measurement}")
   |> limit(n: 1)`;
+      } else {
+        // Si no hay measurement, obtener datos generales del bucket
+        query = `
+from(bucket: "${bucket}")
+  |> range(start: ${timeRange})
+  |> limit(n: 1)`;
+      }
 
       const response = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
         method: 'POST',
@@ -35,23 +45,26 @@ from(bucket: "${bucket}")
         const csvData = await response.text();
         console.log(`📊 Tag keys data for ${timeRange}:`, csvData.substring(0, 200) + '...');
         
-        // Parsear headers para obtener tag keys
+        // Parsear headers para obtener TODOS los tag keys
         const lines = csvData.trim().split('\n');
         if (lines.length > 1) { // Asegurar que hay datos, no solo headers
           const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
           
-          // Filtrar solo las columnas que son tags (no campos del sistema)
-          const tagKeys = headers.filter(key => 
-            !key.startsWith('_') && 
-            key !== 'result' && 
-            key !== 'table' &&
-            key !== 'time' &&
-            key !== ''
-          );
+          // EXTRAER TODOS los campos que podrían ser útiles como filtros
+          const allPossibleFilters = headers.filter(key => {
+            // Solo excluir campos internos que realmente no sirven
+            const excludeFields = ['result', 'table', ''];
+            
+            if (excludeFields.includes(key)) return false;
+            if (!key || key.trim() === '') return false;
+            
+            // INCLUIR TODO LO DEMÁS, incluso campos que empiecen por _
+            return true;
+          });
           
-          if (tagKeys.length > 0) {
-            console.log(`✅ Tag keys found with ${timeRange}:`, tagKeys);
-            return NextResponse.json({ tagKeys });
+          if (allPossibleFilters.length > 0) {
+            console.log(`✅ ALL tag keys found with ${timeRange}:`, allPossibleFilters);
+            return NextResponse.json({ tagKeys: allPossibleFilters });
           }
         }
       } else {
@@ -60,16 +73,16 @@ from(bucket: "${bucket}")
       }
     }
     
-    // Si no encontramos nada, devolver tags comunes conocidos
-    console.log('🔄 No tag keys found, using common fallbacks');
-    const fallbackTags = ['PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type', 'host', 'instance'];
+    // Si no encontramos nada, devolver filtros básicos conocidos
+    console.log('🔄 No tag keys found, using basic fallbacks');
+    const fallbackTags = ['_measurement', '_field', '_time', '_value', 'PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type', 'host', 'instance'];
     return NextResponse.json({ tagKeys: fallbackTags });
     
   } catch (error) {
     console.error('❌ Error fetching tag keys:', error);
     return NextResponse.json({ 
       error: error.message,
-      tagKeys: ['PVO_Plant', 'PVO_Zone', 'PVO_id']
+      tagKeys: ['_measurement', '_field', '_time', '_value', 'PVO_Plant', 'PVO_Zone', 'PVO_id']
     });
   }
 }

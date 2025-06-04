@@ -5,8 +5,9 @@ import { Search, Download, Filter, Calendar, Database, FileText, RefreshCw } fro
 
 const GestionDocumentosPage = () => {
   const [buckets, setBuckets] = useState([]);
-  const [selectedBucket, setSelectedBucket] = useState('PV');
+  const [selectedBucket, setSelectedBucket] = useState(''); // Cambiado: inicialmente vacío
   const [measurements, setMeasurements] = useState([]);
+  const [availablePrimaryFilters, setAvailablePrimaryFilters] = useState([]); // Nuevo: filtros primarios desde API
   
   // Estados para el sistema de filtros en cascada
   const [selectedMeasurements, setSelectedMeasurements] = useState([]);
@@ -23,7 +24,8 @@ const GestionDocumentosPage = () => {
     buckets: false,
     measurements: false,
     fields: false,
-    values: false
+    values: false,
+    primaryFilters: false // Nuevo: estado de carga para filtros primarios
   });
 
   const [timeRange, setTimeRange] = useState({
@@ -47,6 +49,12 @@ const GestionDocumentosPage = () => {
   useEffect(() => {
     if (selectedBucket) {
       loadMeasurements(selectedBucket);
+      loadPrimaryFilters(selectedBucket); // Nuevo: cargar filtros primarios desde API
+      resetFilters();
+    } else {
+      // Si no hay bucket seleccionado, limpiar todo
+      setMeasurements([]);
+      setAvailablePrimaryFilters([]);
       resetFilters();
     }
   }, [selectedBucket]);
@@ -61,6 +69,56 @@ const GestionDocumentosPage = () => {
     setSelectedTagKeys([]);
     setTagValues({});
     setSelectedTagValues({});
+  };
+
+  const loadPrimaryFilters = async (bucket) => {
+    setLoadingStates(prev => ({ ...prev, primaryFilters: true }));
+    try {
+      console.log('🔍 Obteniendo TODOS los filtros del bucket:', bucket);
+      
+      // Hacer una consulta general para obtener una muestra de todos los datos del bucket
+      const exploreResponse = await fetch('/api/influxdb/explore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucket })
+      });
+      
+      if (exploreResponse.ok) {
+        const exploreData = await exploreResponse.json();
+        console.log('📊 Datos explorados:', exploreData);
+        
+        // Obtener todos los headers como filtros potenciales
+        const allHeaders = exploreData.headers || [];
+        
+        // Filtrar solo campos válidos como filtros, incluyendo algunos que empiecen por _
+        const validFilters = allHeaders.filter(header => {
+          // Excluir campos internos de InfluxDB que no son útiles como filtros
+          const excludeFields = ['result', 'table', ''];
+          
+          // Incluir campos que empiecen por _ si son campos estándar útiles
+          const includeSystemFields = ['_measurement', '_field', '_time', '_value'];
+          
+          if (excludeFields.includes(header)) return false;
+          if (includeSystemFields.includes(header)) return true;
+          if (header.startsWith('_')) return false; // Excluir otros campos _internos
+          
+          return header && header.trim() !== '';
+        });
+        
+        console.log('🏷️ TODOS los filtros encontrados:', allHeaders);
+        console.log('✅ Filtros VÁLIDOS para usar:', validFilters);
+        
+        setAvailablePrimaryFilters(validFilters);
+      } else {
+        console.error('❌ Error explorando bucket');
+        setAvailablePrimaryFilters([]);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error cargando filtros:', error);
+      setAvailablePrimaryFilters([]);
+    }
+    setLoadingStates(prev => ({ ...prev, primaryFilters: false }));
   };
 
   const loadBuckets = async () => {
@@ -102,28 +160,50 @@ const GestionDocumentosPage = () => {
 
     setLoadingStates(prev => ({ ...prev, fields: true }));
     try {
-      // Cargar tag keys usando la API específica para el primer measurement seleccionado
-      const tagKeysResponse = await fetch('/api/influxdb/tag-keys', {
+      // Explorar el bucket para obtener TODOS los campos disponibles
+      const exploreResponse = await fetch('/api/influxdb/explore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          bucket: selectedBucket, 
-          measurement: selectedMeasurements[0] // Usar el primer measurement como referencia
-        })
+        body: JSON.stringify({ bucket: selectedBucket })
       });
 
+      let allAvailableFields = [];
       let customTags = [];
-      if (tagKeysResponse.ok) {
-        const tagKeysData = await tagKeysResponse.json();
-        customTags = tagKeysData.tagKeys || [];
-      }
 
-      // Definir campos del sistema disponibles
-      const systemFields = ['_measurement', '_field', '_time', '_value'];
-      const allFields = [...systemFields, ...customTags];
+      if (exploreResponse.ok) {
+        const exploreData = await exploreResponse.json();
+        allAvailableFields = exploreData.availableTags || [];
+        
+        // Separar campos del sistema de tags personalizados
+        const systemFields = ['_measurement', '_field', '_time', '_value'];
+        customTags = allAvailableFields.filter(field => !systemFields.includes(field));
+        
+        console.log('📊 Todos los campos disponibles:', allAvailableFields);
+        console.log('🏷️ Tags personalizados:', customTags);
+      } else {
+        // Fallback: usar tag-keys API para el primer measurement
+        const tagKeysResponse = await fetch('/api/influxdb/tag-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            bucket: selectedBucket, 
+            measurement: selectedMeasurements[0]
+          })
+        });
+
+        if (tagKeysResponse.ok) {
+          const tagKeysData = await tagKeysResponse.json();
+          customTags = tagKeysData.tagKeys || [];
+        }
+
+        // Definir campos del sistema disponibles
+        const systemFields = ['_measurement', '_field', '_time', '_value'];
+        allAvailableFields = [...systemFields, ...customTags];
+      }
       
-      setAvailableFieldTypes(allFields);
+      setAvailableFieldTypes(allAvailableFields);
       setAvailableTagKeys(customTags);
+      
     } catch (error) {
       console.error('Error loading field types:', error);
       // Fallback con campos comunes
@@ -255,6 +335,11 @@ from(bucket: "${selectedBucket}")
     }
   };
 
+  const handleBucketChange = (bucketName) => {
+    setSelectedBucket(bucketName);
+    // El useEffect se encargará de cargar los measurements y resetear los filtros
+  };
+
   const handleMeasurementChange = (measurement) => {
     const newSelected = selectedMeasurements.includes(measurement)
       ? selectedMeasurements.filter(m => m !== measurement)
@@ -262,10 +347,13 @@ from(bucket: "${selectedBucket}")
 
     setSelectedMeasurements(newSelected);
     
-    // Reset todos los filtros dependientes
-    setSelectedFieldType('');
-    setFieldValues([]);
-    setSelectedFieldValues([]);
+    // Reset filtros dependientes que no sean el filtro principal de measurements
+    if (selectedFieldType !== '_measurement') {
+      setSelectedFieldType('');
+      setFieldValues([]);
+      setSelectedFieldValues([]);
+    }
+    
     setSelectedTagKeys([]);
     setTagValues({});
     setSelectedTagValues({});
@@ -273,6 +361,11 @@ from(bucket: "${selectedBucket}")
     if (newSelected.length > 0) {
       // Cargar field types y tag keys para los measurements seleccionados
       loadFieldTypes(newSelected);
+      
+      // Si el filtro actual no es _measurement y hay un field type seleccionado, recargar sus valores
+      if (selectedFieldType && selectedFieldType !== '_measurement') {
+        loadFieldValues(selectedFieldType);
+      }
     } else {
       setAvailableFieldTypes([]);
       setAvailableTagKeys([]);
@@ -284,9 +377,92 @@ from(bucket: "${selectedBucket}")
     setFieldValues([]);
     setSelectedFieldValues([]);
     
-    if (fieldType) {
-      loadFieldValues(fieldType);
+    if (fieldType === '_measurement') {
+      // For _measurement, use the already loaded measurements
+      setFieldValues(measurements);
+    } else if (fieldType === '_time' || fieldType === '_value') {
+      // For continuous fields, show explanatory message
+      setFieldValues(['(valores continuos - usar filtro de tiempo)']);
+    } else if (fieldType && fieldType !== '') {
+      // For other field types, try to load values using a direct query approach
+      loadFieldValuesDirectly(fieldType);
     }
+  };
+
+  const loadFieldValuesDirectly = async (fieldType) => {
+    setLoadingStates(prev => ({ ...prev, values: true }));
+    try {
+      console.log(`🔍 Cargando valores para campo: ${fieldType}`);
+      
+      // Crear una query simple para obtener valores únicos del campo
+      let query;
+      
+      if (fieldType === '_field') {
+        // Para _field, obtener todos los fields disponibles
+        query = `
+from(bucket: "${selectedBucket}")
+  |> range(start: -24h)
+  |> keep(columns: ["_field"])
+  |> distinct(column: "_field")
+  |> limit(n: 100)`;
+      } else {
+        // Para otros campos (tags), obtener valores únicos
+        query = `
+from(bucket: "${selectedBucket}")
+  |> range(start: -24h)
+  |> filter(fn: (r) => exists r.${fieldType})
+  |> keep(columns: ["${fieldType}"])
+  |> distinct(column: "${fieldType}")
+  |> limit(n: 100)`;
+      }
+      
+      console.log('📝 Query para cargar valores:', query);
+      
+      const response = await fetch('/api/influxdb/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📊 Resultado de query:', result);
+        
+        const lines = result.data.trim().split('\n');
+        const values = [];
+
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+          const valueIndex = fieldType === '_field' ? headers.indexOf('_value') : headers.indexOf(fieldType);
+
+          console.log('📋 Headers:', headers);
+          console.log('🎯 Buscando índice para:', fieldType, 'encontrado en posición:', valueIndex);
+
+          if (valueIndex !== -1) {
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue;
+              const row = lines[i].split(',');
+              if (row[valueIndex]) {
+                const value = row[valueIndex].replace(/"/g, '').trim();
+                if (value && value !== '' && value !== 'null' && !values.includes(value)) {
+                  values.push(value);
+                }
+              }
+            }
+          }
+        }
+        
+        console.log('✅ Valores extraídos:', values);
+        setFieldValues(values.sort());
+      } else {
+        console.error('❌ Error en query:', response.status);
+        setFieldValues([]);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando valores directamente:', error);
+      setFieldValues([]);
+    }
+    setLoadingStates(prev => ({ ...prev, values: false }));
   };
 
   const handleFieldValueChange = (value) => {
@@ -323,6 +499,10 @@ from(bucket: "${selectedBucket}")
   };
 
   const buildFluxQuery = () => {
+    if (!selectedBucket) {
+      return 'Error: Debe seleccionar un bucket primero';
+    }
+
     let query = `from(bucket: "${selectedBucket}")\n`;
     
     if (timeRange.type === 'auto') {
@@ -378,6 +558,16 @@ from(bucket: "${selectedBucket}")
   };
 
   const executeQuery = async () => {
+    if (!selectedBucket) {
+      alert('Debe seleccionar un bucket primero');
+      return;
+    }
+
+    if (selectedMeasurements.length === 0) {
+      alert('Debe seleccionar al menos un measurement');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const query = buildFluxQuery();
@@ -484,273 +674,358 @@ from(bucket: "${selectedBucket}")
         
         <select 
           value={selectedBucket}
-          onChange={(e) => setSelectedBucket(e.target.value)}
+          onChange={(e) => handleBucketChange(e.target.value)}
           className="w-full p-2 border border-custom rounded-md bg-panel text-primary"
           disabled={loadingStates.buckets}
         >
+          <option value="">Seleccionar bucket...</option>
           {buckets.map(bucket => (
             <option key={bucket} value={bucket}>{bucket}</option>
           ))}
         </select>
+        
+        {!selectedBucket && (
+          <p className="text-sm text-secondary mt-2">
+            Selecciona un bucket para comenzar a filtrar los datos
+          </p>
+        )}
       </div>
 
-      {/* Filters Section */}
-      <div className="bg-panel rounded-lg p-4">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-          <Filter size={16} />
-          Filtros
-        </h3>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-          {/* Measurements */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-primary">_measurement</label>
-              <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                {selectedMeasurements.length}
-              </span>
-            </div>
-            
-            <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-              {loadingStates.measurements ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                  Cargando measurements...
-                </div>
-              ) : measurements.length === 0 ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  No hay measurements disponibles
-                </div>
-              ) : (
-                measurements.map(measurement => (
-                  <label key={measurement} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedMeasurements.includes(measurement)}
-                      onChange={() => handleMeasurementChange(measurement)}
-                      className="rounded"
-                    />
-                    <span className="truncate text-primary">{measurement}</span>
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Field Type */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-primary">Field Type</label>
-              <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                {selectedFieldValues.length}
-              </span>
-            </div>
-            
-            <select
-              value={selectedFieldType}
-              onChange={(e) => handleFieldTypeChange(e.target.value)}
-              className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-              disabled={availableFieldTypes.length === 0}
-            >
-              <option value="">Seleccionar tipo</option>
-              {availableFieldTypes.map(fieldType => (
-                <option key={fieldType} value={fieldType}>{fieldType}</option>
-              ))}
-            </select>
-            
-            <div className="max-h-32 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-              {selectedFieldType && fieldValues.length === 0 && loadingStates.values ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                  Cargando valores...
-                </div>
-              ) : fieldValues.length === 0 ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  {selectedFieldType ? 'No hay valores disponibles' : 'Selecciona un field type'}
-                </div>
-              ) : (
-                fieldValues.map(value => (
-                  <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedFieldValues.includes(value)}
-                      onChange={() => handleFieldValueChange(value)}
-                      className="rounded"
-                    />
-                    <span className="truncate text-primary">{value}</span>
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Tag Keys */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-primary">Tag Keys</label>
-              <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                {selectedTagKeys.length}
-              </span>
-            </div>
-            
-            <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
-              {availableTagKeys.length === 0 ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  Selecciona measurements primero
-                </div>
-              ) : (
-                availableTagKeys.map(tagKey => (
-                  <label key={tagKey} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedTagKeys.includes(tagKey)}
-                      onChange={() => handleTagKeyChange(tagKey)}
-                      className="rounded"
-                    />
-                    <span className="truncate text-primary">{tagKey}</span>
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Tag Values */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-primary">Tag Values</label>
-              <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
-                {Object.values(selectedTagValues).flat().length}
-              </span>
-            </div>
-            
-            <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-2 bg-panel">
-              {selectedTagKeys.length === 0 ? (
-                <div className="text-center py-2 text-secondary text-sm">
-                  Selecciona tag keys primero
-                </div>
-              ) : (
-                selectedTagKeys.map(tagKey => (
-                  <div key={tagKey} className="space-y-1">
-                    <div className="text-xs font-semibold text-secondary border-b border-custom pb-1">
-                      {tagKey}
-                    </div>
-                    {tagValues[tagKey] ? (
-                      tagValues[tagKey].map(value => (
-                        <label key={`${tagKey}-${value}`} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                          <input
-                            type="checkbox"
-                            checked={(selectedTagValues[tagKey] || []).includes(value)}
-                            onChange={() => handleTagValueChange(tagKey, value)}
-                            className="rounded"
-                          />
-                          <span className="truncate text-primary">{value}</span>
-                        </label>
-                      ))
-                    ) : (
-                      <div className="text-xs text-secondary flex items-center gap-1">
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        Cargando...
-                      </div>
-                    )}
+      {/* Filters Section - Solo mostrar si hay bucket seleccionado */}
+      {selectedBucket && (
+        <div className="bg-panel rounded-lg p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+            <Filter size={16} />
+            Filtros
+          </h3>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Primary Filter */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-primary">Filtro Principal</label>
+                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                  {selectedFieldType === '_measurement' ? selectedMeasurements.length : selectedFieldValues.length}
+                </span>
+              </div>
+              
+              <select
+                value={selectedFieldType}
+                onChange={(e) => {
+                  const newFieldType = e.target.value;
+                  setSelectedFieldType(newFieldType);
+                  
+                  // Reset dependent filters
+                  setFieldValues([]);
+                  setSelectedFieldValues([]);
+                  setSelectedMeasurements([]);
+                  
+                  // Load appropriate data based on selection
+                  if (newFieldType === '_measurement') {
+                    // For _measurement, we already have the measurements loaded
+                    setFieldValues(measurements);
+                  } else if (newFieldType) {
+                    // For other fields, clear values and show message
+                    setFieldValues([]);
+                  }
+                }}
+                className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary mb-2"
+                disabled={loadingStates.primaryFilters}
+              >
+                <option value="">Seleccionar tipo de filtro...</option>
+                {loadingStates.primaryFilters ? (
+                  <option disabled>Cargando filtros...</option>
+                ) : (
+                  availablePrimaryFilters.map(filter => (
+                    <option key={filter} value={filter}>{filter}</option>
+                  ))
+                )}
+              </select>
+              
+              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
+                {!selectedFieldType ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    Selecciona un tipo de filtro arriba
                   </div>
-                ))
-              )}
+                ) : selectedFieldType === '_measurement' ? (
+                  // Show measurements
+                  loadingStates.measurements ? (
+                    <div className="text-center py-2 text-secondary text-sm">
+                      <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
+                      Cargando measurements...
+                    </div>
+                  ) : measurements.length === 0 ? (
+                    <div className="text-center py-2 text-secondary text-sm">
+                      No hay measurements disponibles en este bucket
+                    </div>
+                  ) : (
+                    measurements.map(measurement => (
+                      <label key={measurement} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedMeasurements.includes(measurement)}
+                          onChange={() => handleMeasurementChange(measurement)}
+                          className="rounded"
+                        />
+                        <span className="truncate text-primary">{measurement}</span>
+                      </label>
+                    ))
+                  )
+                ) : selectedFieldType && fieldValues.length === 0 && loadingStates.values ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
+                    Cargando valores...
+                  </div>
+                ) : fieldValues.length === 0 ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    {selectedFieldType === '_time' || selectedFieldType === '_value' ? 
+                      'Filtro de valores continuos - usar rango de tiempo' :
+                      'Selecciona measurements primero para ver valores disponibles'
+                    }
+                  </div>
+                ) : (
+                  fieldValues.map(value => (
+                    <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedFieldType === '_measurement' ? 
+                          selectedMeasurements.includes(value) : 
+                          selectedFieldValues.includes(value)}
+                        onChange={() => {
+                          if (selectedFieldType === '_measurement') {
+                            handleMeasurementChange(value);
+                          } else {
+                            handleFieldValueChange(value);
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <span className="truncate text-primary">{value}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Field Type */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-primary">Field Type</label>
+                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                  {selectedFieldValues.length}
+                </span>
+              </div>
+              
+              <select
+                value={selectedFieldType}
+                onChange={(e) => handleFieldTypeChange(e.target.value)}
+                className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
+                disabled={availableFieldTypes.length === 0}
+              >
+                <option value="">Seleccionar tipo</option>
+                {availableFieldTypes.map(fieldType => (
+                  <option key={fieldType} value={fieldType}>{fieldType}</option>
+                ))}
+              </select>
+              
+              <div className="max-h-32 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
+                {selectedFieldType && fieldValues.length === 0 && loadingStates.values ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
+                    Cargando valores...
+                  </div>
+                ) : fieldValues.length === 0 ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    {selectedFieldType ? 'No hay valores disponibles' : 'Selecciona un field type'}
+                  </div>
+                ) : (
+                  fieldValues.map(value => (
+                    <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedFieldValues.includes(value)}
+                        onChange={() => handleFieldValueChange(value)}
+                        className="rounded"
+                      />
+                      <span className="truncate text-primary">{value}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Tag Keys */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-primary">Tag Keys</label>
+                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                  {selectedTagKeys.length}
+                </span>
+              </div>
+              
+              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-1 bg-panel">
+                {availableTagKeys.length === 0 ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    Selecciona measurements primero
+                  </div>
+                ) : (
+                  availableTagKeys.map(tagKey => (
+                    <label key={tagKey} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedTagKeys.includes(tagKey)}
+                        onChange={() => handleTagKeyChange(tagKey)}
+                        className="rounded"
+                      />
+                      <span className="truncate text-primary">{tagKey}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Tag Values */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-primary">Tag Values</label>
+                <span className="px-2 py-1 bg-blue-500 text-white rounded text-xs">
+                  {Object.values(selectedTagValues).flat().length}
+                </span>
+              </div>
+              
+              <div className="max-h-40 overflow-y-auto border border-custom rounded p-2 space-y-2 bg-panel">
+                {selectedTagKeys.length === 0 ? (
+                  <div className="text-center py-2 text-secondary text-sm">
+                    Selecciona tag keys primero
+                  </div>
+                ) : (
+                  selectedTagKeys.map(tagKey => (
+                    <div key={tagKey} className="space-y-1">
+                      <div className="text-xs font-semibold text-secondary border-b border-custom pb-1">
+                        {tagKey}
+                      </div>
+                      {tagValues[tagKey] ? (
+                        tagValues[tagKey].map(value => (
+                          <label key={`${tagKey}-${value}`} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                            <input
+                              type="checkbox"
+                              checked={(selectedTagValues[tagKey] || []).includes(value)}
+                              onChange={() => handleTagValueChange(tagKey, value)}
+                              className="rounded"
+                            />
+                            <span className="truncate text-primary">{value}</span>
+                          </label>
+                        ))
+                      ) : (
+                        <div className="text-xs text-secondary flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Cargando...
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Time Range */}
-      <div className="bg-panel rounded-lg p-4">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-          <Calendar size={16} />
-          Rango de Tiempo
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <div className="flex gap-2 mb-2">
-              <button
-                onClick={() => setTimeRange({...timeRange, type: 'custom'})}
-                className={`px-3 py-1 text-sm rounded ${timeRange.type === 'custom' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
-              >
-                CUSTOM
-              </button>
-              <button
-                onClick={() => setTimeRange({...timeRange, type: 'auto'})}
-                className={`px-3 py-1 text-sm rounded ${timeRange.type === 'auto' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
-              >
-                AUTO
-              </button>
+      {/* Time Range - Solo mostrar si hay bucket seleccionado */}
+      {selectedBucket && (
+        <div className="bg-panel rounded-lg p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+            <Calendar size={16} />
+            Rango de Tiempo
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="flex gap-2 mb-2">
+                <button
+                  onClick={() => setTimeRange({...timeRange, type: 'custom'})}
+                  className={`px-3 py-1 text-sm rounded ${timeRange.type === 'custom' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
+                >
+                  CUSTOM
+                </button>
+                <button
+                  onClick={() => setTimeRange({...timeRange, type: 'auto'})}
+                  className={`px-3 py-1 text-sm rounded ${timeRange.type === 'auto' ? 'bg-blue-500 text-white' : 'bg-header-table text-primary border border-custom'}`}
+                >
+                  AUTO
+                </button>
+              </div>
+              
+              {timeRange.type === 'auto' ? (
+                <select
+                  value={`${timeRange.from}-${timeRange.to}`}
+                  onChange={(e) => {
+                    const [from, to] = e.target.value.split('-');
+                    setTimeRange({...timeRange, from, to});
+                  }}
+                  className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
+                >
+                  <option value="now-5m-now">Last 5 minutes</option>
+                  <option value="now-1h-now">Last 1 hour</option>
+                  <option value="now-6h-now">Last 6 hours</option>
+                  <option value="now-24h-now">Last 24 hours</option>
+                  <option value="now-7d-now">Last 7 days</option>
+                </select>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    type="datetime-local"
+                    value={timeRange.customFrom}
+                    onChange={(e) => setTimeRange({...timeRange, customFrom: e.target.value})}
+                    className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={timeRange.customTo}
+                    onChange={(e) => setTimeRange({...timeRange, customTo: e.target.value})}
+                    className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
+                  />
+                </div>
+              )}
             </div>
             
-            {timeRange.type === 'auto' ? (
+            <div>
+              <label className="block text-sm font-medium mb-2 text-primary">Función de Agregación</label>
               <select
-                value={`${timeRange.from}-${timeRange.to}`}
-                onChange={(e) => {
-                  const [from, to] = e.target.value.split('-');
-                  setTimeRange({...timeRange, from, to});
-                }}
+                value={aggregateFunction}
+                onChange={(e) => setAggregateFunction(e.target.value)}
                 className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
               >
-                <option value="now-5m-now">Last 5 minutes</option>
-                <option value="now-1h-now">Last 1 hour</option>
-                <option value="now-6h-now">Last 6 hours</option>
-                <option value="now-24h-now">Last 24 hours</option>
-                <option value="now-7d-now">Last 7 days</option>
+                <option value="none">Sin agregación</option>
+                <option value="mean">mean</option>
+                <option value="median">median</option>
+                <option value="last">last</option>
+                <option value="max">max</option>
+                <option value="min">min</option>
+                <option value="sum">sum</option>
               </select>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  type="datetime-local"
-                  value={timeRange.customFrom}
-                  onChange={(e) => setTimeRange({...timeRange, customFrom: e.target.value})}
-                  className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                />
-                <input
-                  type="datetime-local"
-                  value={timeRange.customTo}
-                  onChange={(e) => setTimeRange({...timeRange, customTo: e.target.value})}
-                  className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-                />
-              </div>
-            )}
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-2 text-primary">Función de Agregación</label>
-            <select
-              value={aggregateFunction}
-              onChange={(e) => setAggregateFunction(e.target.value)}
-              className="w-full p-2 border border-custom rounded text-sm bg-panel text-primary"
-            >
-              <option value="none">Sin agregación</option>
-              <option value="mean">mean</option>
-              <option value="median">median</option>
-              <option value="last">last</option>
-              <option value="max">max</option>
-              <option value="min">min</option>
-              <option value="sum">sum</option>
-            </select>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Execute Query */}
-      <div className="flex justify-center">
-        <button
-          onClick={executeQuery}
-          disabled={isLoading || selectedMeasurements.length === 0}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <FileText size={16} />
-          )}
-          {isLoading ? 'Ejecutando...' : 'Ejecutar consulta'}
-        </button>
-      </div>
+      {/* Execute Query - Solo mostrar si hay bucket seleccionado */}
+      {selectedBucket && (
+        <div className="flex justify-center">
+          <button
+            onClick={executeQuery}
+            disabled={isLoading || selectedMeasurements.length === 0}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <FileText size={16} />
+            )}
+            {isLoading ? 'Ejecutando...' : 'Ejecutar consulta'}
+          </button>
+        </div>
+      )}
 
       {/* Results */}
       {queryResult && (
@@ -798,6 +1073,18 @@ from(bucket: "${selectedBucket}")
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Mensaje de ayuda cuando no hay bucket seleccionado */}
+      {!selectedBucket && (
+        <div className="bg-panel rounded-lg p-8 text-center">
+          <Database size={48} className="mx-auto text-secondary mb-4" />
+          <h3 className="text-lg font-semibold text-primary mb-2">Selecciona un bucket para comenzar</h3>
+          <p className="text-secondary">
+            Elige un bucket de la lista desplegable de arriba para ver los measurements disponibles 
+            y comenzar a construir tu consulta.
+          </p>
         </div>
       )}
     </div>
