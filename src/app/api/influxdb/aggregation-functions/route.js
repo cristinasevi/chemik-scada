@@ -6,11 +6,7 @@ const INFLUX_ORG = process.env.INFLUXDB_ORG;
 
 export async function GET() {
   try {
-    console.log('🔍 Obteniendo funciones de agregación mejoradas desde InfluxDB');
-    
-    // Verificar que tenemos las variables de entorno necesarias
     if (!INFLUX_URL || !INFLUX_TOKEN || !INFLUX_ORG) {
-      console.error('❌ Variables de entorno de InfluxDB no configuradas');
       return NextResponse.json({ 
         functions: getDefaultFunctions(),
         source: 'env_error',
@@ -18,9 +14,7 @@ export async function GET() {
       });
     }
 
-    // Primero, verificar conectividad básica con InfluxDB
-    console.log('🔗 Verificando conectividad con InfluxDB...');
-    
+    // Verificar conectividad básica
     const connectivityQuery = `
 from(bucket: "PV")
   |> range(start: -1m)
@@ -37,7 +31,6 @@ from(bucket: "PV")
     });
 
     if (!connectResponse.ok) {
-      console.error('❌ InfluxDB no responde:', connectResponse.status);
       return NextResponse.json({ 
         functions: getDefaultFunctions(),
         source: 'connection_error',
@@ -45,14 +38,10 @@ from(bucket: "PV")
       });
     }
 
-    console.log('✅ InfluxDB responde correctamente');
+    let availableFunctions = ['none'];
 
-    // ESTRATEGIA 1: Intentar obtener funciones desde universe
-    let availableFunctions = ['none']; // Siempre incluir 'none'
-
+    // Intentar obtener funciones desde universe
     try {
-      console.log('🔍 Estrategia 1: Obteniendo funciones desde universe...');
-      
       const universeQuery = `
 import "universe"
 
@@ -75,8 +64,6 @@ universe.functions()
 
       if (universeResponse.ok) {
         const csvData = await universeResponse.text();
-        console.log('📊 Universe functions response:', csvData.substring(0, 300) + '...');
-        
         const lines = csvData.trim().split('\n');
         if (lines.length > 1) {
           const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
@@ -96,47 +83,23 @@ universe.functions()
             }
           }
         }
-
-        console.log('✅ Universe functions encontradas:', availableFunctions.length);
-      } else {
-        console.warn('⚠️ Universe functions falló, intentando estrategia 2...');
       }
-
     } catch (universeError) {
-      console.error('❌ Error con universe functions:', universeError.message);
+      // Universe functions failed
     }
 
-    // ESTRATEGIA 2: Si no obtuvimos suficientes funciones, usar lista predefinida mejorada
+    // Si no obtuvimos suficientes funciones, usar lista predefinida
     if (availableFunctions.length <= 5) {
-      console.log('🔄 Estrategia 2: Usando lista predefinida mejorada...');
-      
       const predefinedFunctions = [
-        'none',
-        'mean',
-        'sum',
-        'count',
-        'min',
-        'max',
-        'first',
-        'last',
-        'median',
-        'mode',
-        'stddev',
-        'spread',
-        'derivative',
-        'difference',
-        'integral',
-        'moving_average',
-        'cumulative_sum',
-        'exponential_moving_average'
+        'none', 'mean', 'sum', 'count', 'min', 'max', 'first', 'last',
+        'median', 'mode', 'stddev', 'spread', 'derivative', 'difference',
+        'integral', 'moving_average', 'cumulative_sum', 'exponential_moving_average'
       ];
 
-      // Verificar qué funciones están realmente disponibles
-      const verifiedFunctions = ['none']; // none siempre disponible
+      const verifiedFunctions = ['none'];
       
-      for (const func of predefinedFunctions.slice(1)) { // skip 'none'
+      for (const func of predefinedFunctions.slice(1)) {
         try {
-          // Test query simple para verificar si la función existe
           const testQuery = `
 from(bucket: "PV")
   |> range(start: -1h)
@@ -154,39 +117,22 @@ from(bucket: "PV")
             body: testQuery
           });
 
-          // Si no da error de sintaxis, la función existe
           if (testResponse.status !== 400) {
             verifiedFunctions.push(func);
           }
         } catch (testError) {
-          // Función no disponible o error de sintaxis
           continue;
         }
       }
 
       availableFunctions = verifiedFunctions;
-      console.log('✅ Funciones verificadas:', availableFunctions);
     }
 
-    // ESTRATEGIA 3: Si aún tenemos pocas funciones, agregar las más comunes sin verificar
+    // Si aún tenemos pocas funciones, agregar las básicas
     if (availableFunctions.length <= 3) {
-      console.log('🔄 Estrategia 3: Agregando funciones básicas...');
-      
-      const basicFunctions = [
-        'none',
-        'mean',
-        'sum',
-        'count',
-        'min',
-        'max',
-        'first',
-        'last'
-      ];
-
+      const basicFunctions = ['none', 'mean', 'sum', 'count', 'min', 'max', 'first', 'last'];
       availableFunctions = [...new Set([...availableFunctions, ...basicFunctions])];
     }
-
-    console.log('✅ Funciones finales disponibles:', availableFunctions);
 
     return NextResponse.json({ 
       functions: availableFunctions,
@@ -196,8 +142,6 @@ from(bucket: "PV")
     });
 
   } catch (error) {
-    console.error('❌ Error general:', error);
-    
     return NextResponse.json({ 
       functions: getDefaultFunctions(),
       source: 'error_fallback',
@@ -207,16 +151,6 @@ from(bucket: "PV")
   }
 }
 
-// Funciones por defecto como último recurso
 function getDefaultFunctions() {
-  return [
-    'none',
-    'mean',
-    'sum',
-    'count',
-    'min',
-    'max',
-    'first',
-    'last'
-  ];
+  return ['none', 'mean', 'sum', 'count', 'min', 'max', 'first', 'last'];
 }

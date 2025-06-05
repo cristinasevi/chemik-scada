@@ -4,7 +4,6 @@ const INFLUX_URL = process.env.INFLUXDB_URL;
 const INFLUX_TOKEN = process.env.INFLUXDB_TOKEN;
 const INFLUX_ORG = process.env.INFLUXDB_ORG;
 
-// Función helper para parsear CSV
 function parseCsvToArray(csvData, columnName) {
   try {
     const lines = csvData.trim().split('\n');
@@ -14,7 +13,6 @@ function parseCsvToArray(csvData, columnName) {
     const columnIndex = headers.indexOf(columnName);
     
     if (columnIndex === -1) {
-      console.warn(`Column ${columnName} not found in headers:`, headers);
       return [];
     }
     
@@ -41,17 +39,13 @@ function parseCsvToArray(csvData, columnName) {
 export async function POST(request) {
   try {
     const { bucket } = await request.json();
-    console.log('📏 Loading measurements for bucket:', bucket);
     
-    // Query más simple que evita el problema de tipos
     const query = `
 from(bucket: "${bucket}")
   |> range(start: -24h)
   |> keep(columns: ["_measurement"])
   |> distinct(column: "_measurement")
   |> limit(n: 100)`;
-
-    console.log('🔍 Executing query:', query);
 
     const response = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
       method: 'POST',
@@ -63,14 +57,10 @@ from(bucket: "${bucket}")
       body: query
     });
 
-    console.log('📡 Response status:', response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ InfluxDB error response:', errorText);
       
-      // Si falla, intentar con explore básico
-      console.log('🔄 Fallback: usando explore básico...');
+      // Fallback básico
       const exploreResponse = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
         method: 'POST',
         headers: {
@@ -102,7 +92,6 @@ from(bucket: "${bucket}")
             }
           }
           
-          console.log('✅ Fallback measurements loaded:', measurements);
           return NextResponse.json({ measurements });
         }
       }
@@ -111,20 +100,15 @@ from(bucket: "${bucket}")
     }
 
     const csvData = await response.text();
-    console.log('📊 Raw CSV data:', csvData.substring(0, 200) + '...');
-    
     const measurements = parseCsvToArray(csvData, '_measurement');
-    console.log('✅ Parsed measurements:', measurements);
     
     return NextResponse.json({ measurements });
   } catch (error) {
-    console.error('❌ Error fetching measurements:', error);
+    console.error('Error fetching measurements:', error);
     
-    // SI FALLA TODO, devolver array vacío - NO HARDCODEAR
-    console.log('🔄 Returning empty array - no hardcoded data');
     return NextResponse.json({ 
       error: error.message,
-      measurements: [] // VACÍO, no hardcodeado
+      measurements: []
     });
   }
 }

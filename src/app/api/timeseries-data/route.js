@@ -325,7 +325,6 @@ export async function GET(request) {
           });
         },
         error(error) {
-          console.error(`Error en query de ${metric} para ${plant}:`, error);
           reject(error);
         },
         complete() {
@@ -348,7 +347,6 @@ export async function GET(request) {
     });
 
   } catch (error) {
-    console.error('Error obteniendo datos de serie temporal:', error);
     return Response.json({
       success: false,
       error: 'Error al obtener datos de serie temporal',

@@ -7,7 +7,6 @@ const INFLUX_ORG = process.env.INFLUXDB_ORG;
 export async function POST(request) {
   try {
     const { bucket, fieldName, timeRange = '-24h', maxValues = 100 } = await request.json();
-    console.log('🎯 Obteniendo valores únicos para field:', { bucket, fieldName, timeRange });
     
     if (!bucket || !fieldName) {
       return NextResponse.json({ 
@@ -16,7 +15,6 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    // Estrategias múltiples para obtener valores de fields
     const timeRanges = [timeRange, '-1h', '-6h', '-24h', '-7d'];
     let foundValues = new Set();
 
@@ -24,9 +22,6 @@ export async function POST(request) {
       if (foundValues.size >= maxValues) break;
 
       try {
-        console.log(`🔍 Intentando rango: ${range}`);
-        
-        // Query para obtener valores únicos del field
         const query = `
 from(bucket: "${bucket}")
   |> range(start: ${range})
@@ -50,9 +45,8 @@ from(bucket: "${bucket}")
 
         if (response.ok) {
           const csvData = await response.text();
-          console.log(`📊 Valores encontrados en ${range}:`, csvData.substring(0, 200));
-          
           const lines = csvData.trim().split('\n');
+          
           if (lines.length > 1) {
             const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
             const valueIndex = headers.indexOf('_value');
@@ -65,14 +59,12 @@ from(bucket: "${bucket}")
                 if (row[valueIndex]) {
                   let value = row[valueIndex].replace(/"/g, '').trim();
                   
-                  // Intentar convertir a número si es posible
                   const numValue = parseFloat(value);
                   if (!isNaN(numValue)) {
-                    // Para números, formatear apropiadamente
                     if (numValue % 1 === 0) {
-                      value = numValue.toString(); // Entero
+                      value = numValue.toString();
                     } else {
-                      value = numValue.toFixed(2); // Decimal con 2 decimales
+                      value = numValue.toFixed(2);
                     }
                   }
                   
@@ -85,23 +77,18 @@ from(bucket: "${bucket}")
           }
         }
       } catch (rangeError) {
-        console.log(`⚠️ Error en rango ${range}:`, rangeError.message);
         continue;
       }
     }
 
-    // Convertir a array y ordenar
     let values = Array.from(foundValues);
     
-    // Intentar ordenar numéricamente si todos son números
     const allNumbers = values.every(v => !isNaN(parseFloat(v)));
     if (allNumbers) {
       values.sort((a, b) => parseFloat(a) - parseFloat(b));
     } else {
       values.sort();
     }
-
-    console.log(`✅ Valores finales encontrados para ${fieldName}:`, values.slice(0, 10));
     
     return NextResponse.json({
       success: true,
@@ -114,7 +101,7 @@ from(bucket: "${bucket}")
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo valores de field:', error);
+    console.error('Error obteniendo valores de field:', error);
     
     return NextResponse.json({
       success: false,

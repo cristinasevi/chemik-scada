@@ -17,10 +17,8 @@ function parseCsvToArray(csvData, columnName) {
       // Si no encontramos la columna exacta, buscar por _value (para casos especiales)
       const valueIndex = headers.indexOf('_value');
       if (valueIndex !== -1) {
-        console.log(`Using _value column instead of ${columnName}`);
         return parseCsvToArray(csvData, '_value');
       }
-      console.warn(`Column ${columnName} not found in headers:`, headers);
       return [];
     }
     
@@ -47,7 +45,6 @@ function parseCsvToArray(csvData, columnName) {
 export async function POST(request) {
   try {
     const { bucket, fieldName, timeRange = '-24h', maxValues = 500 } = await request.json();
-    console.log('🎯 Obteniendo valores únicos para field:', { bucket, fieldName, timeRange });
     
     if (!bucket || !fieldName) {
       return NextResponse.json({ 
@@ -64,7 +61,6 @@ export async function POST(request) {
       if (foundValues.size >= maxValues) break;
 
       try {
-        console.log(`🔍 Intentando rango: ${range} para field: ${fieldName}`);
         
         let query;
         
@@ -121,7 +117,6 @@ schema.tagValues(bucket: "${bucket}", tag: "${fieldName}")
 
         if (response.ok) {
           const csvData = await response.text();
-          console.log(`📊 Valores encontrados en ${range}:`, csvData.substring(0, 200));
           
           const lines = csvData.trim().split('\n');
           if (lines.length > 1) {
@@ -135,8 +130,6 @@ schema.tagValues(bucket: "${bucket}", tag: "${fieldName}")
             
             const values = parseCsvToArray(csvData, columnName);
             
-            console.log(`📊 ${values.length} valores únicos encontrados para ${fieldName} en ${range}`);
-            
             // Añadir valores únicos
             values.forEach(value => {
               if (value && value.trim()) {
@@ -146,10 +139,8 @@ schema.tagValues(bucket: "${bucket}", tag: "${fieldName}")
           }
         } else {
           const errorText = await response.text();
-          console.log(`❌ Error con ${range}:`, errorText);
         }
       } catch (rangeError) {
-        console.log(`⚠️ Error en rango ${range}:`, rangeError.message);
         continue;
       }
     }
@@ -167,12 +158,6 @@ schema.tagValues(bucket: "${bucket}", tag: "${fieldName}")
 
     // Limitar resultados
     values = values.slice(0, maxValues);
-
-    console.log(`✅ Valores finales encontrados para ${fieldName}:`, {
-      total: values.length,
-      sample: values.slice(0, 10),
-      isNumeric: allNumbers
-    });
     
     return NextResponse.json({
       success: true,
@@ -185,7 +170,7 @@ schema.tagValues(bucket: "${bucket}", tag: "${fieldName}")
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo valores de field:', error);
+    console.error('Error obteniendo valores de field:', error);
     
     return NextResponse.json({
       success: false,

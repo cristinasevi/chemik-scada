@@ -9,8 +9,6 @@ export async function POST(request) {
     const { query } = await request.json();
     const startTime = Date.now();
     
-    console.log('🚀 Executing query:', query);
-    
     const response = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
       method: 'POST',
       headers: {
@@ -23,17 +21,12 @@ export async function POST(request) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ InfluxDB query error:', errorText);
       throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
     }
 
     const csvData = await response.text();
     const executionTime = `${Date.now() - startTime}ms`;
-    
-    // Contar filas (excluyendo header)
     const rows = csvData.split('\n').filter(line => line.trim()).length - 1;
-    
-    console.log(`✅ Query executed successfully: ${rows} rows in ${executionTime}`);
     
     return NextResponse.json({ 
       data: csvData, 
@@ -42,7 +35,7 @@ export async function POST(request) {
       executionTime
     });
   } catch (error) {
-    console.error('❌ Error executing query:', error);
+    console.error('Error executing query:', error);
     return NextResponse.json({ 
       error: 'Error executing query',
       details: error.message 

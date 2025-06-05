@@ -32,7 +32,6 @@ export async function GET(request) {
           }
         },
         error(error) {
-          console.error('Error descubriendo plantas:', error);
           resolve();
         },
         complete() {
@@ -363,7 +362,6 @@ export async function GET(request) {
             totalPower = (rowData.suma || 0) / 1000;
           },
           error(error) {
-            console.error('Error en query de potencia total:', error);
             resolve();
           },
           complete() {
@@ -372,7 +370,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de potencia total:', error);
     }
 
     // Energía total
@@ -384,7 +381,6 @@ export async function GET(request) {
             totalEnergy = (rowData.suma || 0) / 1000;
           },
           error(error) {
-            console.error('Error en query de energía total:', error);
             resolve();
           },
           complete() {
@@ -393,7 +389,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de energía total:', error);
     }
 
     // Irradiancia total
@@ -405,7 +400,6 @@ export async function GET(request) {
             totalIrradiance = rowData.suma || 0;
           },
           error(error) {
-            console.error('Error en query de irradiancia total:', error);
             resolve();
           },
           complete() {
@@ -414,7 +408,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de irradiancia total:', error);
     }
 
     // Irradiación total
@@ -426,7 +419,6 @@ export async function GET(request) {
             totalIrradiation = rowData.suma || 0;
           },
           error(error) {
-            console.error('Error en query de irradiación total:', error);
             resolve();
           },
           complete() {
@@ -435,7 +427,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de irradiación total:', error);
     }
 
     // RENTABILIDAD TOTAL
@@ -447,7 +438,6 @@ export async function GET(request) {
             totalProfitability = rowData._value || rowData.suma || rowData.mean || 0;
           },
           error(error) {
-            console.error('Error en query de rentabilidad total:', error);
             resolve();
           },
           complete() {
@@ -456,7 +446,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de rentabilidad total:', error);
     }
 
     // Disposición eléctrica total
@@ -468,7 +457,6 @@ export async function GET(request) {
             totalElecDispo = rowData.AvGen || 0;
           },
           error(error) {
-            console.error('Error en query de disposición eléctrica total:', error);
             resolve();
           },
           complete() {
@@ -477,7 +465,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de disposición eléctrica total:', error);
     }
 
     // Disposición mecánica total
@@ -489,7 +476,6 @@ export async function GET(request) {
             totalMecDispo = rowData._value || 0; // Solo RETAMAR
           },
           error(error) {
-            console.error('Error en query de disposición mecánica total:', error);
             resolve();
           },
           complete() {
@@ -498,7 +484,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de disposición mecánica total:', error);
     }
 
     // PR TOTAL
@@ -510,7 +495,6 @@ export async function GET(request) {
             totalPR = rowData.PR || 0;
           },
           error(error) {
-            console.error('Error en query de PR total:', error);
             resolve();
           },
           complete() {
@@ -519,7 +503,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query de PR total:', error);
     }
 
     // EJECUTAR QUERIES INDIVIDUALES PARA CADA PLANTA
@@ -538,7 +521,6 @@ export async function GET(request) {
               plantsData.get(plantName).timestamp = rowData._time;
             },
             error(error) {
-              console.error(`Error en query de potencia para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -547,7 +529,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de potencia para ${plantName}:`, error);
       }
 
       // Energía individual
@@ -562,7 +543,6 @@ export async function GET(request) {
               plantsData.get(plantName).energy = (rowData._value || 0) / 1000;
             },
             error(error) {
-              console.error(`Error en query de energía para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -586,7 +566,6 @@ export async function GET(request) {
               plantsData.get(plantName).irradiance = rowData._value || 0;
             },
             error(error) {
-              console.error(`Error en query de irradiancia para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -595,7 +574,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de irradiancia para ${plantName}:`, error);
       }
 
       // Irradiación individual
@@ -610,7 +588,6 @@ export async function GET(request) {
               plantsData.get(plantName).irradiation = rowData._value || 0;
             },
             error(error) {
-              console.error(`Error en query de irradiación para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -619,7 +596,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de irradiación para ${plantName}:`, error);
       }
 
       // RENTABILIDAD INDIVIDUAL
@@ -634,7 +610,6 @@ export async function GET(request) {
               plantsData.get(plantName).profitability = rowData._value || rowData.mean || 0;
             },
             error(error) {
-              console.error(`Error en query de rentabilidad para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -643,7 +618,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de rentabilidad para ${plantName}:`, error);
       }
 
       // Disposición eléctrica individual
@@ -658,7 +632,6 @@ export async function GET(request) {
               plantsData.get(plantName).elecDispo = rowData._value || 0;
             },
             error(error) {
-              console.error(`Error en query de disposición eléctrica para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -667,7 +640,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de disposición eléctrica para ${plantName}:`, error);
       }
 
       // Disposición mecánica individual
@@ -687,7 +659,6 @@ export async function GET(request) {
               }
             },
             error(error) {
-              console.error(`Error en query de disposición mecánica para ${plantName}:`, error);
               // Para LAMAJA, establecer explícitamente como null
               if (plantName === 'LAMAJA') {
                 if (!plantsData.has(plantName)) {
@@ -703,7 +674,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de disposición mecánica para ${plantName}:`, error);
         // Para LAMAJA, establecer explícitamente como null
         if (plantName === 'LAMAJA') {
           if (!plantsData.has(plantName)) {
@@ -725,7 +695,6 @@ export async function GET(request) {
               plantsData.get(plantName).pr = rowData.PR || 0;
             },
             error(error) {
-              console.error(`Error en query de PR para ${plantName}:`, error);
               resolve();
             },
             complete() {
@@ -734,7 +703,6 @@ export async function GET(request) {
           });
         });
       } catch (error) {
-        console.error(`Exception en query de PR para ${plantName}:`, error);
       }
     }
 
@@ -812,7 +780,6 @@ export async function GET(request) {
             });
           },
           error(error) {
-            console.error('Error en query geo data:', error);
             resolve();
           },
           complete() {
@@ -821,7 +788,6 @@ export async function GET(request) {
         });
       });
     } catch (error) {
-      console.error('Exception en query geo data:', error);
     }
 
     // COMBINAR DATOS

@@ -110,7 +110,6 @@ const GestionDocumentosPage = () => {
   const loadBucketData = async () => {
     // Verificar cache primero - cache separado por bucket
     if (bucketCache.has(selectedBucket)) {
-      console.log('📦 Loading bucket data from cache:', selectedBucket);
       const cachedData = bucketCache.get(selectedBucket);
       setMeasurements(cachedData.measurements);
       setFields(cachedData.fields);
@@ -118,7 +117,6 @@ const GestionDocumentosPage = () => {
       return;
     }
 
-    console.log('🚀 Loading dynamic filters for bucket:', selectedBucket);
     setLoadingStates(prev => ({ ...prev, bucketData: true }));
 
     try {
@@ -130,7 +128,6 @@ const GestionDocumentosPage = () => {
       });
 
       const fastData = await fastResponse.json();
-      console.log(`⚡ Dynamic filters for bucket "${selectedBucket}":`, fastData);
 
       if (fastData.success && fastData.filters) {
         const { filters } = fastData;
@@ -145,12 +142,6 @@ const GestionDocumentosPage = () => {
           ] || []
         };
 
-        console.log(`✅ Bucket "${selectedBucket}" loaded:`, {
-          measurements: bucketSpecificData.measurements.length,
-          fields: bucketSpecificData.fields.length,
-          tagKeys: bucketSpecificData.availableTagKeys.length
-        });
-
         // Cache específico por bucket
         setBucketCache(prev => new Map(prev).set(selectedBucket, bucketSpecificData));
 
@@ -164,22 +155,16 @@ const GestionDocumentosPage = () => {
       }
 
     } catch (error) {
-      console.error(`❌ Error loading filters for bucket "${selectedBucket}":`, error);
-
       // Si falla, limpiar todo - específico del bucket
       setMeasurements([]);
       setFields([]);
       setAvailableTagKeys([]);
-
-      // Mostrar mensaje de error específico del bucket
-      console.warn(`⚠️ No se pudieron cargar filtros para el bucket "${selectedBucket}"`);
     }
 
     setLoadingStates(prev => ({ ...prev, bucketData: false }));
   };
 
   const addFilter = useCallback(() => {
-    console.log('➕ Adding filter...');
     const newFilter = {
       id: Date.now(),
       key: '',
@@ -199,8 +184,6 @@ const GestionDocumentosPage = () => {
   }, []);
 
   const updateFilterKey = useCallback(async (filterId, key) => {
-    console.log('🔄 Updating filter key:', key, 'for bucket:', selectedBucket);
-
     setFilters(prevFilters =>
       prevFilters.map(filter =>
         filter.id === filterId
@@ -226,14 +209,9 @@ const GestionDocumentosPage = () => {
         // Usar datos ya cargados si están disponibles
         if (key === '_measurement') {
           availableValues = measurements;
-          console.log(`✅ Using cached measurements: ${availableValues.length} items`);
         } else if (key === '_field') {
           availableValues = fields;
-          console.log(`✅ Using cached fields: ${availableValues.length} items`);
         } else {
-          // Para cualquier otro campo, usar la API universal
-          console.log('🔍 Loading values for field:', key, 'using universal API');
-
           const response = await fetch('/api/influxdb/universal-values', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -246,17 +224,13 @@ const GestionDocumentosPage = () => {
           });
 
           const data = await response.json();
-          console.log('📊 Universal values response for', key, ':', data);
 
           if (data.success) {
             availableValues = data.values || [];
-            console.log(`✅ Loaded ${availableValues.length} values for ${key}`);
           } else {
-            console.error('Error loading field values:', data.error);
             availableValues = [];
 
             // Fallback: intentar con la API de tag-values si falla la universal
-            console.log('🔄 Trying fallback with tag-values API...');
             try {
               const fallbackResponse = await fetch('/api/influxdb/tag-values', {
                 method: 'POST',
@@ -270,18 +244,11 @@ const GestionDocumentosPage = () => {
               const fallbackData = await fallbackResponse.json();
               if (fallbackData.success) {
                 availableValues = fallbackData.values || [];
-                console.log(`✅ Fallback successful: ${availableValues.length} values for ${key}`);
               }
             } catch (fallbackError) {
-              console.error('Fallback also failed:', fallbackError);
             }
           }
         }
-
-        console.log(`🎯 Final values for ${key}:`, {
-          count: availableValues.length,
-          sample: availableValues.slice(0, 5)
-        });
 
         setFilters(prevFilters =>
           prevFilters.map(filter =>
@@ -291,7 +258,6 @@ const GestionDocumentosPage = () => {
           )
         );
       } catch (error) {
-        console.error('Error loading filter values:', error);
         setFilters(prevFilters =>
           prevFilters.map(filter =>
             filter.id === filterId
@@ -302,20 +268,6 @@ const GestionDocumentosPage = () => {
       }
     }
   }, [selectedBucket, measurements, fields]);
-
-  useEffect(() => {
-    if (selectedBucket) {
-      console.log('🔍 Debug bucket data:', {
-        bucket: selectedBucket,
-        measurements: measurements.length,
-        fields: fields.length,
-        availableTagKeys: availableTagKeys.length,
-        sampleMeasurements: measurements.slice(0, 3),
-        sampleFields: fields.slice(0, 3),
-        sampleTagKeys: availableTagKeys.slice(0, 3)
-      });
-    }
-  }, [selectedBucket, measurements, fields, availableTagKeys]);
 
   const updateFilterValues = useCallback((filterId, values) => {
     setFilters(prevFilters =>
@@ -494,9 +446,6 @@ const GestionDocumentosPage = () => {
 
   // Memoizar opciones disponibles para filtros
   const filterOptions = useMemo(() => {
-    console.log(`🔍 Building filter options for bucket: "${selectedBucket}"`);
-    console.log(`📊 Available tag keys: ${availableTagKeys.length}`);
-
     // Filtrar campos que no queremos mostrar
     const excludedFields = new Set([
       '_start',

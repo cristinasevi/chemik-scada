@@ -1,4 +1,3 @@
-// src/app/api/influxdb/all-filters/route.js - COMPLETAMENTE SIN HARDCODED
 import { NextResponse } from 'next/server';
 
 const INFLUX_URL = process.env.INFLUXDB_URL;
@@ -8,7 +7,6 @@ const INFLUX_ORG = process.env.INFLUXDB_ORG;
 export async function POST(request) {
   try {
     const { bucket } = await request.json();
-    console.log('🔍 Obteniendo TODOS los filtros disponibles para bucket:', bucket);
     
     if (!bucket) {
       return NextResponse.json({ 
@@ -17,20 +15,16 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    // Estrategia múltiple para obtener todos los campos posibles
     const timeRanges = ['-1h', '-6h', '-24h', '-7d', '-30d'];
     let allFields = new Set();
     let measurements = new Set();
     let fieldNames = new Set();
 
     for (const timeRange of timeRanges) {
-      console.log(`🔍 Explorando rango: ${timeRange}`);
-      
       try {
-        // 1. Obtener schema completo usando keys() function
+        // Schema tags
         const schemaQuery = `
             import "influxdata/influxdb/schema"
-
             schema.tagKeys(bucket: "${bucket}")
             |> limit(n: 1000)
             `;
@@ -47,10 +41,8 @@ export async function POST(request) {
 
         if (schemaResponse.ok) {
           const schemaData = await schemaResponse.text();
-          console.log(`📊 Schema data (${timeRange}):`, schemaData.substring(0, 200));
-          
-          // Procesar tags del schema
           const schemaLines = schemaData.trim().split('\n');
+          
           if (schemaLines.length > 1) {
             const headers = schemaLines[0].split(',').map(h => h.replace(/"/g, '').trim());
             const valueIndex = headers.indexOf('_value');
@@ -70,10 +62,9 @@ export async function POST(request) {
           }
         }
 
-        // 2. Obtener fields usando fieldKeys()
+        // Field keys
         const fieldsQuery = `
             import "influxdata/influxdb/schema"
-
             schema.fieldKeys(bucket: "${bucket}")
             |> limit(n: 1000)
             `;
@@ -90,10 +81,8 @@ export async function POST(request) {
 
         if (fieldsResponse.ok) {
           const fieldsData = await fieldsResponse.text();
-          console.log(`📊 Fields data (${timeRange}):`, fieldsData.substring(0, 200));
-          
-          // Procesar field keys
           const fieldsLines = fieldsData.trim().split('\n');
+          
           if (fieldsLines.length > 1) {
             const headers = fieldsLines[0].split(',').map(h => h.replace(/"/g, '').trim());
             const valueIndex = headers.indexOf('_value');
@@ -106,7 +95,7 @@ export async function POST(request) {
                   const fieldKey = row[valueIndex].replace(/"/g, '').trim();
                   if (fieldKey && fieldKey !== '' && fieldKey !== 'null') {
                     fieldNames.add(fieldKey);
-                    allFields.add(`_field:${fieldKey}`); // Prefix para distinguir
+                    allFields.add(`_field:${fieldKey}`);
                   }
                 }
               }
@@ -114,7 +103,7 @@ export async function POST(request) {
           }
         }
 
-        // 3. Explorar datos reales para obtener todos los headers
+        // Data exploration
         const dataQuery = `
             from(bucket: "${bucket}")
             |> range(start: ${timeRange})
@@ -136,7 +125,6 @@ export async function POST(request) {
           const lines = csvData.trim().split('\n');
           
           if (lines.length > 1) {
-            // Obtener todos los headers
             const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
             headers.forEach(header => {
               if (header && header !== '' && header !== 'result' && header !== 'table') {
@@ -144,7 +132,6 @@ export async function POST(request) {
               }
             });
 
-            // Obtener measurements únicos
             const measurementIndex = headers.indexOf('_measurement');
             if (measurementIndex !== -1) {
               for (let i = 1; i < lines.length; i++) {
@@ -161,24 +148,20 @@ export async function POST(request) {
           }
         }
 
-        // Si encontramos suficientes campos, podemos parar
         if (allFields.size > 20) {
-          console.log(`✅ Suficientes campos encontrados (${allFields.size}) en ${timeRange}`);
           break;
         }
 
       } catch (rangeError) {
-        console.log(`⚠️ Error en rango ${timeRange}:`, rangeError.message);
         continue;
       }
     }
 
-    // 4. Obtener measurements específicos si no los tenemos
+    // Get measurements if empty
     if (measurements.size === 0) {
       try {
         const measurementsQuery = `
             import "influxdata/influxdb/schema"
-
             schema.measurements(bucket: "${bucket}")
             |> limit(n: 100)
             `;
@@ -216,36 +199,31 @@ export async function POST(request) {
           }
         }
       } catch (error) {
-        console.log('⚠️ Error obteniendo measurements:', error.message);
+        // Silent fail
       }
     }
 
-    // Organizar filtros por categorías DINÁMICAMENTE - NO hardcodear
+    // Organize filters dynamically
     const systemFields = [];
     const tagFields = [];
     const processedFieldNames = [];
 
     Array.from(allFields).forEach(field => {
       if (field.startsWith('_field:')) {
-        // Es un field name
         processedFieldNames.push(field.replace('_field:', ''));
       } else if (field.startsWith('_')) {
-        // Es un campo del sistema
         systemFields.push(field);
       } else if (field && field !== 'result' && field !== 'table') {
-        // Es un tag personalizado
         tagFields.push(field);
       }
     });
 
-    // Agregar field names adicionales que encontramos directamente
     Array.from(fieldNames).forEach(field => {
       if (!processedFieldNames.includes(field)) {
         processedFieldNames.push(field);
       }
     });
 
-    // Resultado final organizado completamente dinámico
     const result = {
       systemFields: systemFields.sort(),
       tagFields: tagFields.sort(),
@@ -259,8 +237,6 @@ export async function POST(request) {
         measurements: measurements.size
       }
     };
-
-    console.log('✅ Filtros encontrados:', result.summary);
     
     return NextResponse.json({
       success: true,
@@ -270,9 +246,8 @@ export async function POST(request) {
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo filtros:', error);
+    console.error('Error obteniendo filtros:', error);
     
-    // SI FALLA TODO, devolver arrays vacíos - NO HARDCODEAR
     return NextResponse.json({
       success: false,
       error: error.message,

@@ -41,7 +41,6 @@ function parseCsvToArray(csvData, columnName) {
 export async function POST(request) {
   try {
     const { bucket, tagKey } = await request.json();
-    console.log('🎯 Obteniendo valores únicos para tag:', { bucket, tagKey });
     
     if (!bucket || !tagKey) {
       return NextResponse.json({ 
@@ -57,9 +56,7 @@ export async function POST(request) {
     for (const timeRange of timeRanges) {
       if (foundValues.size >= 1000) break; // Límite para evitar sobrecarga
 
-      try {
-        console.log(`🔍 Intentando rango: ${timeRange}`);
-        
+      try {        
         // Query para obtener valores únicos del tag
         // CORREGIDO: usar la sintaxis correcta para tags personalizados
         const query = `
@@ -84,27 +81,21 @@ from(bucket: "${bucket}")
 
         if (response.ok) {
           const csvData = await response.text();
-          console.log(`📊 CSV Response for ${timeRange}:`, csvData.substring(0, 300) + '...');
           
           // Parsear usando el nombre correcto de la columna
           const values = parseCsvToArray(csvData, tagKey);
-          
-          console.log(`📊 Valores encontrados en ${timeRange}:`, values.length);
           
           // Añadir valores únicos al Set
           values.forEach(value => foundValues.add(value));
           
           // Si encontramos suficientes valores, podemos parar
           if (foundValues.size >= 100) {
-            console.log(`✅ Suficientes valores encontrados: ${foundValues.size}`);
             break;
           }
         } else {
           const errorText = await response.text();
-          console.log(`❌ Error con ${timeRange}:`, errorText);
         }
       } catch (rangeError) {
-        console.log(`⚠️ Error en rango ${timeRange}:`, rangeError.message);
         continue;
       }
     }
@@ -119,12 +110,6 @@ from(bucket: "${bucket}")
     } else {
       values.sort();
     }
-
-    console.log(`✅ Valores finales encontrados para ${tagKey}:`, {
-      total: values.length,
-      sample: values.slice(0, 10),
-      isNumeric: allNumbers
-    });
     
     return NextResponse.json({
       success: true,
@@ -137,7 +122,7 @@ from(bucket: "${bucket}")
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo valores de tag:', error);
+    console.error('Error obteniendo valores de tag:', error);
     
     return NextResponse.json({
       success: false,
