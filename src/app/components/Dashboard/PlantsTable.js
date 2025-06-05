@@ -213,16 +213,15 @@ const PlantsTable = () => {
       return '--';
     }
 
-    // Para potencia, mantener 2 decimales para coincidir con Grafana
     if (metric === 'power') {
-      decimals = 2; // Mostrar 2 decimales para potencia
+      decimals = 2;
     }
 
     const formatted = Number(value).toFixed(decimals);
     return formatted === '-0.00' || formatted === '-0.0' ? '0.00' : formatted;
   };
 
-  // Componente para celda con gráfica y valor - formato inteligente mejorado
+  // Componente para celda con gráfica y valor
   const DataCellWithChart = ({ value, unit, chartData, chartColor = '#3b82f6', chartType = 'line', metric = null }) => {
     // Para valores de potencia pequeños (< 1 MW), mostrar en kW con más precisión
     let displayValue = value;
@@ -232,9 +231,9 @@ const PlantsTable = () => {
     if (unit === 'MW' && Math.abs(value) < 1) {
       displayValue = value * 1000;
       displayUnit = 'kW';
-      displayDecimals = 1; // Para kW usar 1 decimal
+      displayDecimals = 1;
     } else if (metric === 'power') {
-      displayDecimals = 2; // Para MW de potencia usar 2 decimales
+      displayDecimals = 2;
     }
 
     return (
@@ -317,16 +316,13 @@ const PlantsTable = () => {
 
   // Componente para la celda de rentabilidad
   const ProfitabilityCell = ({ value }) => {
-    // Formatear rentabilidad con 2 decimales mínimo
     const formatProfitability = (val) => {
       if (val === null || val === undefined || isNaN(val)) return '0.00';
 
-      // Si el valor es muy pequeño, mostrar al menos 2 decimales
       if (Math.abs(val) < 1) {
         return val.toFixed(2);
       }
 
-      // Si es >= 1, mostrar sin decimales
       return Math.round(val).toString();
     };
 

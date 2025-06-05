@@ -286,7 +286,7 @@ const PowerChart = ({ height = "400px" }) => {
               />
               <Tooltip 
                 formatter={formatTooltip}
-                labelStyle={{ color: 'var(--text-primary)' }}
+                labelStyle={{ color: 'black' }}
                 contentStyle={{ 
                   backgroundColor: 'white', 
                   border: '1px solid var(--border-color)',

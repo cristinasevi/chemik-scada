@@ -65,7 +65,6 @@ const Map = () => {
       }
 
       try {
-        // Marcador principal
         const icon = createCustomIcon(station.data?.AvEle);
         const marker = window.L.marker(station.coordinates, { icon })
           .addTo(mapInstanceRef.current);
@@ -88,7 +87,6 @@ const Map = () => {
 
         labelsRef.current.push(labelMarker);
       } catch (error) {
-        // Ignorar errores de marcadores individuales
       }
     });
   };

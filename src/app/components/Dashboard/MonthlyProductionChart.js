@@ -131,15 +131,12 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
       return (
         <text
           x={x + width / 2}
-          y={y - 6} // Más separación para evitar cortes
+          y={y - 6}
           fill="var(--text-primary)"
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize="11"
-          fontWeight="500" // Menos peso
-          style={{
-            textShadow: '1px 1px 2px rgba(0,0,0,0.6)', // Sombra más definida
-          }}
+          fontWeight="500"
         >
           {value.toFixed(1)}
         </text>
@@ -152,14 +149,11 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
         <text
           x={x + width / 2}
           y={y + height / 2}
-          fill="rgba(255, 255, 255, 0.85)" // Blanco menos brillante
+          fill="var(--text-primary)"
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize="12"
-          fontWeight="500" // Menos peso para que no sea tan llamativo
-          style={{
-            textShadow: '1px 1px 2px rgba(0,0,0,0.7)', // Sombra más suave pero efectiva
-          }}
+          fontWeight="500"
         >
           {value.toFixed(2)} MWh
         </text>
@@ -170,15 +164,12 @@ const MonthlyProductionChart = ({ height = "400px" }) => {
     return (
       <text
         x={x + width / 2}
-        y={y - 12} // Más separación para evitar cortes
+        y={y - 12}
         fill="var(--text-primary)"
         textAnchor="middle"
         dominantBaseline="middle"
         fontSize="11"
-        fontWeight="500" // Menos peso
-        style={{
-          textShadow: '1px 1px 2px rgba(0,0,0,0.6)', // Sombra más definida
-        }}
+        fontWeight="500"
       >
         {value.toFixed(1)}
       </text>

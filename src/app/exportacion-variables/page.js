@@ -8,7 +8,17 @@ const ExportacionVariablesPage = () => {
   const [measurements, setMeasurements] = useState([]);
   const [fields, setFields] = useState([]);
   const [availableTagKeys, setAvailableTagKeys] = useState([]);
-  const [filters, setFilters] = useState([]);
+  const [filters, setFilters] = useState([{
+    id: Date.now(),
+    key: '',
+    selectedValues: [],
+    availableValues: [],
+    loading: false,
+    timeStart: '',
+    timeEnd: '',
+    valueMin: '',
+    valueMax: ''
+  }]);
   const [aggregationFunctions, setAggregationFunctions] = useState([]);
 
   // Cache para evitar llamadas repetidas
@@ -39,6 +49,14 @@ const ExportacionVariablesPage = () => {
   const [windowPeriods, setWindowPeriods] = useState([]);
   const [showCalendar, setShowCalendar] = useState(false);
 
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
   // Load initial data
   useEffect(() => {
     loadAggregationFunctions();
@@ -52,12 +70,7 @@ const ExportacionVariablesPage = () => {
   // Update raw query when selections change
   useEffect(() => {
     if (!useCustomQuery) {
-      // Pequeño delay para asegurar que se actualiza después de cambios de estado
-      const timeoutId = setTimeout(() => {
-        buildFluxQuery();
-      }, 50);
-
-      return () => clearTimeout(timeoutId);
+      buildFluxQuery();
     }
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
 
@@ -534,14 +547,9 @@ const ExportacionVariablesPage = () => {
 
     query += `  |> yield(name: "result")`;
     setRawQuery(query);
-  }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
+  }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction]);
 
   const executeQuery = async () => {
-    // Forzar rebuild de la query antes de ejecutar
-    if (!useCustomQuery) {
-      buildFluxQuery();
-    }
-
     const queryToExecute = useCustomQuery ? customQuery : rawQuery;
 
     if (!queryToExecute || queryToExecute.includes('// Select a bucket')) {
@@ -549,10 +557,9 @@ const ExportacionVariablesPage = () => {
       return;
     }
 
-    // Limpiar resultado anterior para forzar una nueva consulta
+    setLoadingStates(prev => ({ ...prev, executing: true }));
     setQueryResult(null);
 
-    setLoadingStates(prev => ({ ...prev, executing: true }));
     try {
       const response = await fetch('/api/influxdb/query', {
         method: 'POST',
@@ -605,8 +612,43 @@ const ExportacionVariablesPage = () => {
   const exportData = (format) => {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
-    const bucketName = selectedBucket.replace(/[^a-zA-Z0-9]/g, '_');
-    const fileName = `${bucketName}_${dateStr}`;
+
+    // Construir nombre del archivo con bucket y filtros
+    let fileName = selectedBucket || 'PV';
+
+    // Agregar filtros seleccionados al nombre
+    const activeFilters = filters.filter(filter => filter.key && filter.selectedValues.length > 0);
+
+    if (activeFilters.length > 0) {
+      const filterNames = activeFilters.map(filter => {
+        // Mapeo de nombres técnicos a nombres amigables
+        const friendlyNames = {
+          'PVO_Plant': 'Planta',
+          'PVO_Zone': 'Zona',
+          'PVO_type': 'Tipo',
+          'PVO_id': 'ID',
+          '_field': 'Variable'
+        };
+
+        const filterName = friendlyNames[filter.key] || filter.key;
+
+        // Si solo hay un valor, usar ese valor
+        if (filter.selectedValues.length === 1) {
+          return `${filterName}_${filter.selectedValues[0]}`;
+        } else {
+          // Si hay múltiples valores, usar el nombre del filtro y cantidad
+          return `${filterName}_${filter.selectedValues.length}valores`;
+        }
+      });
+
+      fileName += '_' + filterNames.join('_');
+    }
+
+    // Agregar fecha
+    fileName += `_${dateStr}`;
+
+    // Limpiar caracteres especiales del nombre del archivo
+    fileName = fileName.replace(/[^a-zA-Z0-9_-]/g, '_');
 
     if (!queryResult || !queryResult.data) {
       alert('No data to export. Run a query first.');
@@ -708,11 +750,11 @@ const ExportacionVariablesPage = () => {
   const filterOptions = useMemo(() => {
     // Mapeo de campos técnicos a nombres amigables
     const allowedFields = [
-      { value: '_field', label: 'Variable' },
       { value: 'PVO_Plant', label: 'Planta' },
       { value: 'PVO_Zone', label: 'Zona' },
+      { value: 'PVO_type', label: 'Tipo' },
       { value: 'PVO_id', label: 'ID' },
-      { value: 'PVO_type', label: 'Tipo' }
+      { value: '_field', label: 'Variable' }
     ];
 
     // Obtener las claves de filtros ya utilizadas
@@ -732,11 +774,11 @@ const ExportacionVariablesPage = () => {
   // Agregar esta función después de los otros useCallback
   const getAvailableOptionsForFilter = useCallback((currentFilterId) => {
     const allowedFields = [
-      { value: '_field', label: 'Variable' },
       { value: 'PVO_Plant', label: 'Planta' },
       { value: 'PVO_Zone', label: 'Zona' },
+      { value: 'PVO_type', label: 'Tipo' },
       { value: 'PVO_id', label: 'ID' },
-      { value: 'PVO_type', label: 'Tipo' }
+      { value: '_field', label: 'Variable' }
     ];
 
     // Obtener las claves de filtros ya utilizadas (excluyendo el filtro actual)
@@ -797,6 +839,13 @@ const ExportacionVariablesPage = () => {
       return dateStr > start && dateStr < end;
     };
 
+    // Función para verificar si una fecha es futura
+    const isFutureDate = (date) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Resetear horas para comparar solo fechas
+      return date > today;
+    };
+
     const days = getDaysInMonth(currentMonth);
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
       "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -807,7 +856,7 @@ const ExportacionVariablesPage = () => {
         <div className="flex items-center justify-between mb-3">
           <button
             onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-            className="p-1 hover:bg-gray-200 rounded cursor-pointer"
+            className="p-1 hover-badge-gray rounded cursor-pointer"
           >
             <ArrowLeft size={16} />
           </button>
@@ -816,7 +865,7 @@ const ExportacionVariablesPage = () => {
           </h4>
           <button
             onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-            className="p-1 hover:bg-gray-200 rounded cursor-pointer"
+            className="p-1 hover-badge-gray rounded cursor-pointer"
           >
             <ArrowRight size={16} />
           </button>
@@ -837,18 +886,20 @@ const ExportacionVariablesPage = () => {
             const dateStr = formatDateString(date);
             const isSelected = isDateSelected(date);
             const isInRange = isDateInRange(date);
+            const isFuture = isFutureDate(date);
+            const isDisabled = !isCurrentMonth || isFuture;
 
             return (
               <button
                 key={index}
-                onClick={() => isCurrentMonth && onDateSelect(dateStr)}
-                disabled={!isCurrentMonth}
+                onClick={() => !isDisabled && onDateSelect(dateStr)}
+                disabled={isDisabled}
                 className={`
-                p-2 text-sm rounded cursor-pointer
-                ${!isCurrentMonth ? 'text-gray-400 cursor-not-allowed' : 'text-primary hover:bg-blue-100'}
-                ${isSelected ? 'bg-blue-500 text-white' : ''}
-                ${isInRange ? 'bg-blue-200' : ''}
-              `}
+                  p-2 text-sm rounded
+                  ${isDisabled ? 'text-gray-400 cursor-default opacity-50' : 'text-primary hover-badge-blue cursor-pointer'}
+                  ${isSelected ? 'bg-blue-500 !text-white font-bold' : ''}
+                  ${isInRange ? 'badge-selected' : ''}
+                `}
               >
                 {date.getDate()}
               </button>
@@ -872,16 +923,15 @@ const ExportacionVariablesPage = () => {
         {/* Query Builder */}
         <div className="lg:col-span-2 space-y-6">
           {/* Bucket Selection */}
-          <div className="bg-panel rounded-lg p-4">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
-              <Database size={16} />
-              Bucket
-              {loadingStates.bucketData && (
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
-              )}
-            </h3>
-            <div className="w-full p-3 border border-custom rounded-lg bg-panel text-primary font-medium">
-              PV
+          <div className="bg-panel rounded-lg p-4 py-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-2 text-primary">
+                <Database size={16} />
+                Bucket
+              </h3>
+              <div className="px-3 py-2 border border-custom rounded-lg bg-panel text-primary font-medium">
+                PV
+              </div>
             </div>
           </div>
 
@@ -911,7 +961,7 @@ const ExportacionVariablesPage = () => {
                       <select
                         value={filter.key}
                         onChange={(e) => updateFilterKey(filter.id, e.target.value)}
-                        className="flex-1 p-2 border border-custom rounded bg-panel text-primary text-sm"
+                        className="flex-1 p-2 rounded-lg bg-header-table text-primary text-sm"
                         disabled={loadingStates.bucketData}
                       >
                         <option value="">
@@ -933,7 +983,6 @@ const ExportacionVariablesPage = () => {
                       <button
                         onClick={() => removeFilter(filter.id)}
                         className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
-                        title="Remove filter"
                       >
                         <X size={16} />
                       </button>
@@ -1030,7 +1079,7 @@ const ExportacionVariablesPage = () => {
           <div className="bg-panel rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
               <Calendar size={16} />
-              Seleccionar rango de fechas y horas
+              Rango de fechas y horas
             </h3>
 
             <div className="space-y-3">
@@ -1039,12 +1088,19 @@ const ExportacionVariablesPage = () => {
                 className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm text-left flex items-center justify-between"
               >
                 <span>
-                  {timeRange.selectedDates.length === 0
-                    ? "Seleccionar fecha..."
-                    : timeRange.selectedDates.length === 1
-                      ? `Fecha: ${timeRange.selectedDates[0]}`
-                      : `Rango: ${timeRange.selectedDates.sort()[0]} - ${timeRange.selectedDates.sort()[1]}`
-                  }
+                  {(() => {
+                    if (timeRange.selectedDates.length === 0) {
+                      return "Seleccionar fecha...";
+                    }
+
+                    if (timeRange.selectedDates.length === 1) {
+                      return `Fecha seleccionada: ${formatDate(timeRange.selectedDates[0])}`;
+                    }
+
+                    // Para rango de fechas (2 fechas)
+                    const sortedDates = timeRange.selectedDates.sort();
+                    return `Rango seleccionado: ${formatDate(sortedDates[0])} hasta ${formatDate(sortedDates[1])}`;
+                  })()}
                 </span>
                 <Calendar size={16} />
               </button>
@@ -1065,7 +1121,9 @@ const ExportacionVariablesPage = () => {
                     // Para una sola fecha
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-xs font-medium mb-1 text-secondary">Hora inicio</label>
+                        <label className="block text-xs font-medium mb-1 text-secondary">
+                          Hora inicio
+                        </label>
                         <input
                           type="time"
                           value={timeRange.startTime || '00:00'}
@@ -1083,7 +1141,9 @@ const ExportacionVariablesPage = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium mb-1 text-secondary">Hora fin</label>
+                        <label className="block text-xs font-medium mb-1 text-secondary">
+                          Hora fin
+                        </label>
                         <input
                           type="time"
                           value={timeRange.endTime || '23:59'}
@@ -1106,7 +1166,13 @@ const ExportacionVariablesPage = () => {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium mb-1 text-secondary">
-                          Hora inicio ({timeRange.selectedDates.sort()[0]})
+                          Hora inicio ({(() => {
+                            const date = new Date(timeRange.selectedDates.sort()[0]);
+                            const day = date.getDate().toString().padStart(2, '0');
+                            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                            const year = date.getFullYear();
+                            return `${day}/${month}/${year}`;
+                          })()})
                         </label>
                         <input
                           type="time"
@@ -1126,7 +1192,13 @@ const ExportacionVariablesPage = () => {
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1 text-secondary">
-                          Hora fin ({timeRange.selectedDates.sort()[1]})
+                          Hora fin ({(() => {
+                            const date = new Date(timeRange.selectedDates.sort()[1]);
+                            const day = date.getDate().toString().padStart(2, '0');
+                            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                            const year = date.getFullYear();
+                            return `${day}/${month}/${year}`;
+                          })()})
                         </label>
                         <input
                           type="time"
@@ -1161,7 +1233,6 @@ const ExportacionVariablesPage = () => {
                       startTime: '',
                       endTime: ''
                     });
-                    setShowCalendar(false);
                   }}
                   className="text-xs text-muted hover:underline cursor-pointer"
                 >
@@ -1225,7 +1296,7 @@ const ExportacionVariablesPage = () => {
               </button>
               <button
                 onClick={() => exportData('json')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 disabled={!queryResult?.success}
               >
                 <Download size={16} />
