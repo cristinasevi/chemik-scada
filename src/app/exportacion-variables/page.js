@@ -24,7 +24,9 @@ const ExportacionVariablesPage = () => {
     stop: 'now()',
     selectedDates: [],
     startDate: '',
-    endDate: ''
+    endDate: '',
+    startTime: '',
+    endTime: ''
   });
 
   const [windowPeriod, setWindowPeriod] = useState('auto');
@@ -50,7 +52,12 @@ const ExportacionVariablesPage = () => {
   // Update raw query when selections change
   useEffect(() => {
     if (!useCustomQuery) {
-      buildFluxQuery();
+      // Pequeño delay para asegurar que se actualiza después de cambios de estado
+      const timeoutId = setTimeout(() => {
+        buildFluxQuery();
+      }, 50);
+
+      return () => clearTimeout(timeoutId);
     }
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
 
@@ -64,8 +71,10 @@ const ExportacionVariablesPage = () => {
 
     if (selectedDates.length === 0) {
       // Primera fecha seleccionada
-      const startIso = `${date}T00:00:00Z`;
-      const endIso = `${date}T23:59:59Z`;
+      const startTime = timeRange.startTime || '00:00';
+      const endTime = timeRange.endTime || '23:59';
+      const startIso = `${date}T${startTime}:00Z`;
+      const endIso = `${date}T${endTime}:59Z`;
 
       setTimeRange({
         ...timeRange,
@@ -73,14 +82,18 @@ const ExportacionVariablesPage = () => {
         startDate: date,
         endDate: date,
         start: `time(v: "${startIso}")`,
-        stop: `time(v: "${endIso}")`
+        stop: `time(v: "${endIso}")`,
+        startTime: startTime,
+        endTime: endTime
       });
     } else if (selectedDates.length === 1) {
       const firstDate = selectedDates[0];
       const [startDate, endDate] = date < firstDate ? [date, firstDate] : [firstDate, date];
 
-      const startIso = `${startDate}T00:00:00Z`;
-      const endIso = `${endDate}T23:59:59Z`;
+      const startTime = timeRange.startTime || '00:00';
+      const endTime = timeRange.endTime || '23:59';
+      const startIso = `${startDate}T${startTime}:00Z`;
+      const endIso = `${endDate}T${endTime}:59Z`;
 
       setTimeRange({
         ...timeRange,
@@ -88,12 +101,16 @@ const ExportacionVariablesPage = () => {
         startDate,
         endDate,
         start: `time(v: "${startIso}")`,
-        stop: `time(v: "${endIso}")`
+        stop: `time(v: "${endIso}")`,
+        startTime: startTime,
+        endTime: endTime
       });
     } else {
       // Reset y seleccionar nueva fecha
-      const startIso = `${date}T00:00:00Z`;
-      const endIso = `${date}T23:59:59Z`;
+      const startTime = '00:00';
+      const endTime = '23:59';
+      const startIso = `${date}T${startTime}:00Z`;
+      const endIso = `${date}T${endTime}:59Z`;
 
       setTimeRange({
         ...timeRange,
@@ -101,10 +118,34 @@ const ExportacionVariablesPage = () => {
         startDate: date,
         endDate: date,
         start: `time(v: "${startIso}")`,
-        stop: `time(v: "${endIso}")`
+        stop: `time(v: "${endIso}")`,
+        startTime: startTime,
+        endTime: endTime
       });
     }
   };
+
+  // Función para construir filtros aplicados para consultas dependientes
+  const buildAppliedFilters = useCallback((excludeFilterId = null) => {
+    const appliedFilters = [];
+
+    filters.forEach(filter => {
+      // Excluir el filtro actual y filtros vacíos
+      if (filter.id === excludeFilterId || !filter.key || filter.selectedValues.length === 0) {
+        return;
+      }
+
+      // Solo procesar filtros con valores seleccionados
+      if (filter.key !== '_time' && filter.key !== '_value') {
+        appliedFilters.push({
+          key: filter.key,
+          values: filter.selectedValues
+        });
+      }
+    });
+
+    return appliedFilters;
+  }, [filters]);
 
   const loadAggregationFunctions = async () => {
     try {
@@ -259,46 +300,114 @@ const ExportacionVariablesPage = () => {
       try {
         let availableValues = [];
 
-        // Usar datos ya cargados si están disponibles
-        if (key === '_measurement') {
+        // Usar datos ya cargados si están disponibles y no hay filtros aplicados
+        const appliedFilters = buildAppliedFilters(filterId);
+
+        if (key === '_measurement' && appliedFilters.length === 0) {
           availableValues = measurements;
-        } else if (key === '_field') {
+        } else if (key === '_field' && appliedFilters.length === 0) {
           availableValues = fields;
         } else {
-          const response = await fetch('/api/influxdb/universal-values', {
+          // Construir query de InfluxDB que tenga en cuenta los filtros ya aplicados
+          let baseQuery = `from(bucket: "${selectedBucket}")
+  |> range(start: -24h)`;
+
+          // Agregar filtros ya aplicados
+          appliedFilters.forEach(appliedFilter => {
+            if (appliedFilter.values.length === 1) {
+              const fieldRef = appliedFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(appliedFilter.key)
+                ? `r.${appliedFilter.key}`
+                : `r["${appliedFilter.key}"]`;
+              baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${appliedFilter.values[0]}")`;
+            } else if (appliedFilter.values.length > 1) {
+              const values = appliedFilter.values.map(v => `"${v}"`).join(', ');
+              const fieldRef = appliedFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(appliedFilter.key)
+                ? `r.${appliedFilter.key}`
+                : `r["${appliedFilter.key}"]`;
+              baseQuery += `\n  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))`;
+            }
+          });
+
+          // Agregar la parte para obtener valores únicos del campo solicitado
+          const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+            ? `r.${key}`
+            : `r["${key}"]`;
+
+          const distinctQuery = `${baseQuery}
+  |> keep(columns: ["${key}"])
+  |> distinct(column: "${key}")
+  |> limit(n: 500)
+  |> yield(name: "distinct_values")`;
+
+          // Llamar a la API con la query construida
+          const response = await fetch('/api/influxdb/query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              bucket: selectedBucket,
-              fieldName: key,
-              timeRange: '-24h',
-              maxValues: 500
+              query: distinctQuery,
+              format: 'csv'
             })
           });
 
           const data = await response.json();
 
-          if (data.success) {
-            availableValues = data.values || [];
-          } else {
-            availableValues = [];
+          if (data.success && data.data) {
+            // Parsear el CSV resultado
+            const lines = data.data.split('\n').filter(line => line.trim());
+            if (lines.length > 1) {
+              // Encontrar el índice de la columna que necesitamos
+              const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+              const keyIndex = headers.indexOf(key);
 
-            // Fallback: intentar con la API de tag-values si falla la universal
-            try {
-              const fallbackResponse = await fetch('/api/influxdb/tag-values', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  bucket: selectedBucket,
-                  tagKey: key
-                })
-              });
-
-              const fallbackData = await fallbackResponse.json();
-              if (fallbackData.success) {
-                availableValues = fallbackData.values || [];
+              if (keyIndex !== -1) {
+                // Extraer valores únicos
+                const uniqueValues = new Set();
+                lines.slice(1).forEach(line => {
+                  const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
+                  if (cells[keyIndex] && cells[keyIndex] !== '') {
+                    uniqueValues.add(cells[keyIndex]);
+                  }
+                });
+                availableValues = Array.from(uniqueValues).sort();
               }
-            } catch (fallbackError) {
+            }
+          } else {
+            // Fallback a la API universal si falla la query personalizada
+            const fallbackResponse = await fetch('/api/influxdb/universal-values', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucket: selectedBucket,
+                fieldName: key,
+                timeRange: '-24h',
+                maxValues: 500,
+                // Pasar filtros aplicados si la API los soporta
+                appliedFilters: appliedFilters
+              })
+            });
+
+            const fallbackData = await fallbackResponse.json();
+            if (fallbackData.success) {
+              availableValues = fallbackData.values || [];
+            } else {
+              // Último fallback
+              try {
+                const lastFallbackResponse = await fetch('/api/influxdb/tag-values', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    bucket: selectedBucket,
+                    tagKey: key
+                  })
+                });
+
+                const lastFallbackData = await lastFallbackResponse.json();
+                if (lastFallbackData.success) {
+                  availableValues = lastFallbackData.values || [];
+                }
+              } catch (lastFallbackError) {
+                console.error('All fallbacks failed:', lastFallbackError);
+              }
             }
           }
         }
@@ -311,6 +420,7 @@ const ExportacionVariablesPage = () => {
           )
         );
       } catch (error) {
+        console.error('Error loading filter values:', error);
         setFilters(prevFilters =>
           prevFilters.map(filter =>
             filter.id === filterId
@@ -320,7 +430,7 @@ const ExportacionVariablesPage = () => {
         );
       }
     }
-  }, [selectedBucket, measurements, fields]);
+  }, [selectedBucket, measurements, fields, buildAppliedFilters]);
 
   const updateFilterValues = useCallback((filterId, values) => {
     setFilters(prevFilters =>
@@ -427,6 +537,11 @@ const ExportacionVariablesPage = () => {
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
 
   const executeQuery = async () => {
+    // Forzar rebuild de la query antes de ejecutar
+    if (!useCustomQuery) {
+      buildFluxQuery();
+    }
+
     const queryToExecute = useCustomQuery ? customQuery : rawQuery;
 
     if (!queryToExecute || queryToExecute.includes('// Select a bucket')) {
@@ -434,12 +549,19 @@ const ExportacionVariablesPage = () => {
       return;
     }
 
+    // Limpiar resultado anterior para forzar una nueva consulta
+    setQueryResult(null);
+
     setLoadingStates(prev => ({ ...prev, executing: true }));
     try {
       const response = await fetch('/api/influxdb/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: queryToExecute })
+        body: JSON.stringify({
+          query: queryToExecute,
+          // Añadir timestamp para evitar cache
+          timestamp: Date.now()
+        })
       });
 
       const data = await response.json();
@@ -450,7 +572,9 @@ const ExportacionVariablesPage = () => {
           rows: data.rows,
           executionTime: data.executionTime || '0ms',
           data: data.data,
-          success: true
+          success: true,
+          // Añadir timestamp para identificar consultas únicas
+          queryId: Date.now()
         });
       } else {
         setQueryResult({
@@ -459,7 +583,8 @@ const ExportacionVariablesPage = () => {
           executionTime: '0ms',
           data: '',
           error: data.details || data.error || 'Unknown error',
-          success: false
+          success: false,
+          queryId: Date.now()
         });
       }
     } catch (error) {
@@ -470,7 +595,8 @@ const ExportacionVariablesPage = () => {
         executionTime: '0ms',
         data: '',
         error: error.message,
-        success: false
+        success: false,
+        queryId: Date.now()
       });
     }
     setLoadingStates(prev => ({ ...prev, executing: false }));
@@ -488,26 +614,66 @@ const ExportacionVariablesPage = () => {
     }
 
     if (format === 'csv') {
-      const blob = new Blob([queryResult.data], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileName}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (format === 'json') {
-      // Convert CSV to JSON for better structure
+      // Filtrar solo las columnas _field, _time, _value
       const lines = queryResult.data.split('\n').filter(line => line.trim());
       if (lines.length > 1) {
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-        const jsonData = lines.slice(1).map(line => {
-          const values = line.split(',').map(v => v.replace(/"/g, '').trim());
-          const obj = {};
-          headers.forEach((header, index) => {
-            obj[header] = values[index] || '';
-          });
-          return obj;
+
+        // Encontrar índices de las columnas que queremos
+        const fieldIndex = headers.indexOf('_field');
+        const timeIndex = headers.indexOf('_time');
+        const valueIndex = headers.indexOf('_value');
+
+        // Verificar que existan las columnas
+        if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
+          alert('Las columnas requeridas (_field, _time, _value) no están disponibles en los datos.');
+          return;
+        }
+
+        // Crear nuevo CSV con solo las 3 columnas
+        let filteredCsv = '_field,_time,_value\n';
+
+        lines.slice(1).forEach(line => {
+          const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
+          if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex)) {
+            filteredCsv += `"${cells[fieldIndex]}","${cells[timeIndex]}","${cells[valueIndex]}"\n`;
+          }
         });
+
+        const blob = new Blob([filteredCsv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${fileName}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } else if (format === 'json') {
+      // Para JSON también filtrar las mismas columnas
+      const lines = queryResult.data.split('\n').filter(line => line.trim());
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+
+        const fieldIndex = headers.indexOf('_field');
+        const timeIndex = headers.indexOf('_time');
+        const valueIndex = headers.indexOf('_value');
+
+        if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
+          alert('Las columnas requeridas (_field, _time, _value) no están disponibles en los datos.');
+          return;
+        }
+
+        const jsonData = lines.slice(1).map(line => {
+          const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
+          if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex)) {
+            return {
+              _field: cells[fieldIndex] || '',
+              _time: cells[timeIndex] || '',
+              _value: cells[valueIndex] || ''
+            };
+          }
+          return null;
+        }).filter(item => item !== null);
 
         const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -549,11 +715,40 @@ const ExportacionVariablesPage = () => {
       { value: 'PVO_type', label: 'Tipo' }
     ];
 
+    // Obtener las claves de filtros ya utilizadas
+    const usedFilterKeys = filters.map(filter => filter.key).filter(key => key !== '');
+
+    // Filtrar opciones que no estén ya en uso
+    const availableOptions = allowedFields.filter(field =>
+      !usedFilterKeys.includes(field.value)
+    );
+
     return {
-      allOptions: allowedFields,
-      totalAvailable: allowedFields.length
+      allOptions: availableOptions,
+      totalAvailable: availableOptions.length
     };
-  }, []);
+  }, [filters]);
+
+  // Agregar esta función después de los otros useCallback
+  const getAvailableOptionsForFilter = useCallback((currentFilterId) => {
+    const allowedFields = [
+      { value: '_field', label: 'Variable' },
+      { value: 'PVO_Plant', label: 'Planta' },
+      { value: 'PVO_Zone', label: 'Zona' },
+      { value: 'PVO_id', label: 'ID' },
+      { value: 'PVO_type', label: 'Tipo' }
+    ];
+
+    // Obtener las claves de filtros ya utilizadas (excluyendo el filtro actual)
+    const usedFilterKeys = filters
+      .filter(filter => filter.id !== currentFilterId && filter.key !== '')
+      .map(filter => filter.key);
+
+    // Filtrar opciones que no estén ya en uso
+    return allowedFields.filter(field =>
+      !usedFilterKeys.includes(field.value)
+    );
+  }, [filters]);
 
   const CustomCalendar = ({ onDateSelect, selectedDates }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -722,18 +917,16 @@ const ExportacionVariablesPage = () => {
                         <option value="">
                           {!selectedBucket
                             ? "Selecciona un bucket primero..."
-                            : filterOptions.totalAvailable === 0
-                              ? `Sin filtros disponibles en "${selectedBucket}"`
+                            : getAvailableOptionsForFilter(filter.id).length === 0
+                              ? `Todos los filtros están en uso`
                               : `Seleccionar filtro...`
                           }
                         </option>
 
                         {/* Solo mostrar opciones si hay un bucket seleccionado y filtros disponibles */}
-                        {selectedBucket && filterOptions.totalAvailable > 0 && (
-                          filterOptions.allOptions.map(option => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))
-                        )}
+                        {selectedBucket && getAvailableOptionsForFilter(filter.id).map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
 
                       {/* Remove Filter Button */}
@@ -837,7 +1030,7 @@ const ExportacionVariablesPage = () => {
           <div className="bg-panel rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
               <Calendar size={16} />
-              Seleccionar rango de fechas
+              Seleccionar rango de fechas y horas
             </h3>
 
             <div className="space-y-3">
@@ -863,6 +1056,99 @@ const ExportacionVariablesPage = () => {
                 />
               )}
 
+              {/* Selección de horas */}
+              {timeRange.selectedDates.length > 0 && (
+                <div className="space-y-3 border-t border-custom pt-3">
+                  <h4 className="text-sm font-medium text-primary">Horarios</h4>
+
+                  {timeRange.selectedDates.length === 1 ? (
+                    // Para una sola fecha
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-secondary">Hora inicio</label>
+                        <input
+                          type="time"
+                          value={timeRange.startTime || '00:00'}
+                          onChange={(e) => {
+                            const time = e.target.value || '00:00';
+                            const date = timeRange.selectedDates[0];
+                            const startIso = `${date}T${time}:00Z`;
+                            setTimeRange(prev => ({
+                              ...prev,
+                              startTime: time,
+                              start: `time(v: "${startIso}")`
+                            }));
+                          }}
+                          className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-secondary">Hora fin</label>
+                        <input
+                          type="time"
+                          value={timeRange.endTime || '23:59'}
+                          onChange={(e) => {
+                            const time = e.target.value || '23:59';
+                            const date = timeRange.selectedDates[0];
+                            const endIso = `${date}T${time}:59Z`;
+                            setTimeRange(prev => ({
+                              ...prev,
+                              endTime: time,
+                              stop: `time(v: "${endIso}")`
+                            }));
+                          }}
+                          className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    // Para rango de fechas
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-secondary">
+                          Hora inicio ({timeRange.selectedDates.sort()[0]})
+                        </label>
+                        <input
+                          type="time"
+                          value={timeRange.startTime || '00:00'}
+                          onChange={(e) => {
+                            const time = e.target.value || '00:00';
+                            const startDate = timeRange.selectedDates.sort()[0];
+                            const startIso = `${startDate}T${time}:00Z`;
+                            setTimeRange(prev => ({
+                              ...prev,
+                              startTime: time,
+                              start: `time(v: "${startIso}")`
+                            }));
+                          }}
+                          className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-secondary">
+                          Hora fin ({timeRange.selectedDates.sort()[1]})
+                        </label>
+                        <input
+                          type="time"
+                          value={timeRange.endTime || '23:59'}
+                          onChange={(e) => {
+                            const time = e.target.value || '23:59';
+                            const endDate = timeRange.selectedDates.sort()[1];
+                            const endIso = `${endDate}T${time}:59Z`;
+                            setTimeRange(prev => ({
+                              ...prev,
+                              endTime: time,
+                              stop: `time(v: "${endIso}")`
+                            }));
+                          }}
+                          className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {timeRange.selectedDates.length > 0 && (
                 <button
                   onClick={() => {
@@ -871,7 +1157,9 @@ const ExportacionVariablesPage = () => {
                       stop: 'now()',
                       selectedDates: [],
                       startDate: '',
-                      endDate: ''
+                      endDate: '',
+                      startTime: '',
+                      endTime: ''
                     });
                     setShowCalendar(false);
                   }}
