@@ -249,3 +249,27 @@ select option {
 .dark .badge-gray {
   border-color: #4b5563;
 }
+
+.border-red {
+  border-color: #fecaca;
+}
+
+.dark .border-red {
+  border-color: #991b1b;
+}
+
+.text-red-error-primary {
+  color: #991b1b;
+}
+
+.dark .text-red-error-primary {
+  color: #fecaca;
+}
+
+.text-red-error-secondary {
+  color: #dc2626;
+}
+
+.dark .text-red-error-secondary {
+  color: #fca5a5;
+}

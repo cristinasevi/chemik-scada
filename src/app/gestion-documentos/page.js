@@ -22,7 +22,7 @@ const GestionDocumentosPage = () => {
   });
 
   const [timeRange, setTimeRange] = useState({
-    start: 'now-1h',
+    start: '-1h',
     stop: 'now'
   });
 
@@ -36,13 +36,13 @@ const GestionDocumentosPage = () => {
 
   // Time range presets
   const timeRangePresets = [
-    { label: 'Past 5m', value: 'now-5m' },
-    { label: 'Past 15m', value: 'now-15m' },
-    { label: 'Past 1h', value: 'now-1h' },
-    { label: 'Past 6h', value: 'now-6h' },
-    { label: 'Past 24h', value: 'now-24h' },
-    { label: 'Past 7d', value: 'now-7d' },
-    { label: 'Past 30d', value: 'now-30d' }
+    { label: 'Past 5m', value: '-5m' },
+    { label: 'Past 15m', value: '-15m' },
+    { label: 'Past 1h', value: '-1h' },
+    { label: 'Past 6h', value: '-6h' },
+    { label: 'Past 24h', value: '-24h' },
+    { label: 'Past 7d', value: '-7d' },
+    { label: 'Past 30d', value: '-30d' }
   ];
 
   // Window period options
@@ -439,9 +439,22 @@ const GestionDocumentosPage = () => {
     }
   };
 
-  const copyQuery = () => {
+  const copyQuery = async () => {
     const queryToCopy = useCustomQuery ? customQuery : rawQuery;
-    navigator.clipboard.writeText(queryToCopy);
+    try {
+      await navigator.clipboard.writeText(queryToCopy);
+      // Mostrar feedback temporal
+      const button = document.activeElement;
+      const originalHTML = button.innerHTML;
+
+      button.innerHTML = '<svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20" style="display: inline;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg> <span style="font-size: 12px; display: inline;">Copied</span>';
+
+      setTimeout(() => {
+        button.innerHTML = originalHTML;
+      }, 2000);
+    } catch (err) {
+      console.error('Error copying to clipboard:', err);
+    }
   };
 
   // Memoizar opciones disponibles para filtros
@@ -474,8 +487,7 @@ const GestionDocumentosPage = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-primary">Data Explorer</h1>
-          <p className="text-sm text-secondary">Query and export data from InfluxDB</p>
+          <h1 className="text-2xl font-semibold text-primary">Gestión de Documentos</h1>
         </div>
 
         <div className="flex gap-3">
@@ -707,7 +719,6 @@ const GestionDocumentosPage = () => {
           {/* Aggregation - AÑADIR ESTO */}
           {selectedBucket && (
             <div className="bg-panel rounded-lg p-4">
-              <h3 className="text-sm font-semibold mb-3 text-primary">Aggregate (Optional)</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-2 text-primary">Window Period</label>
@@ -722,7 +733,7 @@ const GestionDocumentosPage = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-primary">Function</label>
+                  <label className="block text-sm font-medium mb-2 text-primary">Aggregate</label>
                   <select
                     value={aggregateFunction}
                     onChange={(e) => setAggregateFunction(e.target.value)}
@@ -832,9 +843,9 @@ const GestionDocumentosPage = () => {
                   )}
                 </div>
               ) : (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                  <div className="text-red-800 dark:text-red-200 font-medium text-sm mb-1">Query Error</div>
-                  <div className="text-red-600 dark:text-red-300 text-xs">{queryResult.error}</div>
+                <div className="badge-red border border-red rounded-lg p-3">
+                  <div className="text-red-error-primary font-medium text-sm mb-1">Query Error</div>
+                  <div className="text-red-error-secondary text-xs">{queryResult.error}</div>
                 </div>
               )}
             </div>
