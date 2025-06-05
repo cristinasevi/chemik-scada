@@ -18,20 +18,20 @@ function parseCsvToArray(csvData, columnName) {
       return [];
     }
     
-    const values = [];
+    const values = new Set(); // Usar Set para evitar duplicados
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       
       const row = lines[i].split(',');
       if (row.length > columnIndex && row[columnIndex]) {
         const value = row[columnIndex].replace(/"/g, '').trim();
-        if (value && value !== '' && value !== 'null') {
-          values.push(value);
+        if (value && value !== '' && value !== 'null' && value !== 'undefined') {
+          values.add(value);
         }
       }
     }
     
-    return [...new Set(values)].sort();
+    return Array.from(values).sort();
   } catch (error) {
     console.error('Error parsing CSV:', error);
     return [];
@@ -40,73 +40,111 @@ function parseCsvToArray(csvData, columnName) {
 
 export async function POST(request) {
   try {
-    const { bucket, measurement, tagKey } = await request.json();
-    console.log('🎯 Loading tag values for:', { measurement, tagKey });
+    const { bucket, tagKey } = await request.json();
+    console.log('🎯 Obteniendo valores únicos para tag:', { bucket, tagKey });
     
-    // Intentar múltiples rangos de tiempo y estrategias
-    const strategies = [
-      { range: '-1h', limit: 100 },
-      { range: '-24h', limit: 200 },
-      { range: '-7d', limit: 500 },
-      { range: '-30d', limit: 1000 }
-    ];
-    
-    for (const strategy of strategies) {
-      console.log(`🔍 Trying strategy: ${strategy.range} with limit ${strategy.limit}`);
-      
-      const query = `
+    if (!bucket || !tagKey) {
+      return NextResponse.json({ 
+        error: 'Bucket y tagKey son requeridos',
+        values: [] 
+      }, { status: 400 });
+    }
+
+    // Estrategias múltiples para obtener valores del tag
+    const timeRanges = ['-1h', '-6h', '-24h', '-7d', '-30d'];
+    let foundValues = new Set();
+
+    for (const timeRange of timeRanges) {
+      if (foundValues.size >= 1000) break; // Límite para evitar sobrecarga
+
+      try {
+        console.log(`🔍 Intentando rango: ${timeRange}`);
+        
+        // Query para obtener valores únicos del tag
+        // CORREGIDO: usar la sintaxis correcta para tags personalizados
+        const query = `
 from(bucket: "${bucket}")
-  |> range(start: ${strategy.range})
-  |> filter(fn: (r) => r._measurement == "${measurement}")
-  |> filter(fn: (r) => exists r.${tagKey})
+  |> range(start: ${timeRange})
+  |> filter(fn: (r) => exists r["${tagKey}"])
   |> keep(columns: ["${tagKey}"])
   |> distinct(column: "${tagKey}")
-  |> limit(n: ${strategy.limit})`;
+  |> limit(n: 1000)
+  |> sort(columns: ["${tagKey}"])
+`;
 
-      const response = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Token ${INFLUX_TOKEN}`,
-          'Content-Type': 'application/vnd.flux',
-          'Accept': 'application/csv'
-        },
-        body: query
-      });
+        const response = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${INFLUX_TOKEN}`,
+            'Content-Type': 'application/vnd.flux',
+            'Accept': 'application/csv'
+          },
+          body: query
+        });
 
-      if (response.ok) {
-        const csvData = await response.text();
-        console.log(`📊 Tag values data for ${strategy.range}:`, csvData.substring(0, 200) + '...');
-        
-        let values = parseCsvToArray(csvData, tagKey);
-        
-        // Filtrar valores vacíos o null
-        values = values.filter(value => 
-          value && 
-          value !== '' && 
-          value !== 'null' && 
-          value !== 'undefined' &&
-          value.trim() !== ''
-        );
-        
-        if (values.length > 0) {
-          console.log(`✅ Tag values found with ${strategy.range}:`, values);
-          return NextResponse.json({ values });
+        if (response.ok) {
+          const csvData = await response.text();
+          console.log(`📊 CSV Response for ${timeRange}:`, csvData.substring(0, 300) + '...');
+          
+          // Parsear usando el nombre correcto de la columna
+          const values = parseCsvToArray(csvData, tagKey);
+          
+          console.log(`📊 Valores encontrados en ${timeRange}:`, values.length);
+          
+          // Añadir valores únicos al Set
+          values.forEach(value => foundValues.add(value));
+          
+          // Si encontramos suficientes valores, podemos parar
+          if (foundValues.size >= 100) {
+            console.log(`✅ Suficientes valores encontrados: ${foundValues.size}`);
+            break;
+          }
+        } else {
+          const errorText = await response.text();
+          console.log(`❌ Error con ${timeRange}:`, errorText);
         }
-      } else {
-        const errorText = await response.text();
-        console.log(`❌ Error with ${strategy.range}:`, errorText);
+      } catch (rangeError) {
+        console.log(`⚠️ Error en rango ${timeRange}:`, rangeError.message);
+        continue;
       }
     }
+
+    // Convertir Set a array y ordenar
+    let values = Array.from(foundValues);
     
-    // SI NO SE ENCUENTRAN VALORES, devolver array vacío - NO HARDCODEAR
-    console.log('🔄 No values found in any time range, returning empty array');
-    return NextResponse.json({ values: [] });
-    
-  } catch (error) {
-    console.error('❌ Error fetching tag values:', error);
-    return NextResponse.json({ 
-      error: error.message,
-      values: [] // VACÍO, no hardcodeado
+    // Intentar ordenar numéricamente si todos son números
+    const allNumbers = values.every(v => !isNaN(parseFloat(v)) && isFinite(v));
+    if (allNumbers) {
+      values.sort((a, b) => parseFloat(a) - parseFloat(b));
+    } else {
+      values.sort();
+    }
+
+    console.log(`✅ Valores finales encontrados para ${tagKey}:`, {
+      total: values.length,
+      sample: values.slice(0, 10),
+      isNumeric: allNumbers
     });
+    
+    return NextResponse.json({
+      success: true,
+      tagKey,
+      bucket,
+      values: values,
+      totalFound: values.length,
+      isNumeric: allNumbers,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo valores de tag:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: error.message,
+      values: [],
+      tagKey: '',
+      bucket: ''
+    }, { status: 500 });
   }
 }

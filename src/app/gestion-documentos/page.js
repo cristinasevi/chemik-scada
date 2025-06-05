@@ -63,7 +63,7 @@ const GestionDocumentosPage = () => {
     loadAggregationFunctions();
   }, []);
 
-  // OPTIMIZACIÓN: Cargar datos del bucket solo cuando cambie y no esté en cache
+  // Cargar datos del bucket solo cuando cambie y no esté en cache
   useEffect(() => {
     if (selectedBucket) {
       loadBucketData();
@@ -198,9 +198,8 @@ const GestionDocumentosPage = () => {
     setFilters(prev => prev.filter(filter => filter.id !== filterId));
   }, []);
 
-  // OPTIMIZACIÓN: Memoizar la carga de valores de filtros
   const updateFilterKey = useCallback(async (filterId, key) => {
-    console.log('🔄 Updating filter key:', key);
+    console.log('🔄 Updating filter key:', key, 'for bucket:', selectedBucket);
 
     setFilters(prevFilters =>
       prevFilters.map(filter =>
@@ -224,27 +223,65 @@ const GestionDocumentosPage = () => {
       try {
         let availableValues = [];
 
+        // Usar datos ya cargados si están disponibles
         if (key === '_measurement') {
           availableValues = measurements;
+          console.log(`✅ Using cached measurements: ${availableValues.length} items`);
         } else if (key === '_field') {
           availableValues = fields;
+          console.log(`✅ Using cached fields: ${availableValues.length} items`);
         } else {
-          // Es un tag personalizado, cargar sus valores
-          if (measurements.length > 0) {
-            console.log('🔍 Loading tag values for:', key);
-            const response = await fetch('/api/influxdb/tag-values', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                bucket: selectedBucket,
-                measurement: measurements[0],
-                tagKey: key
-              })
-            });
-            const data = await response.json();
+          // Para cualquier otro campo, usar la API universal
+          console.log('🔍 Loading values for field:', key, 'using universal API');
+
+          const response = await fetch('/api/influxdb/universal-values', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bucket: selectedBucket,
+              fieldName: key,
+              timeRange: '-24h',
+              maxValues: 500
+            })
+          });
+
+          const data = await response.json();
+          console.log('📊 Universal values response for', key, ':', data);
+
+          if (data.success) {
             availableValues = data.values || [];
+            console.log(`✅ Loaded ${availableValues.length} values for ${key}`);
+          } else {
+            console.error('Error loading field values:', data.error);
+            availableValues = [];
+
+            // Fallback: intentar con la API de tag-values si falla la universal
+            console.log('🔄 Trying fallback with tag-values API...');
+            try {
+              const fallbackResponse = await fetch('/api/influxdb/tag-values', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  bucket: selectedBucket,
+                  tagKey: key
+                })
+              });
+
+              const fallbackData = await fallbackResponse.json();
+              if (fallbackData.success) {
+                availableValues = fallbackData.values || [];
+                console.log(`✅ Fallback successful: ${availableValues.length} values for ${key}`);
+              }
+            } catch (fallbackError) {
+              console.error('Fallback also failed:', fallbackError);
+            }
           }
         }
+
+        console.log(`🎯 Final values for ${key}:`, {
+          count: availableValues.length,
+          sample: availableValues.slice(0, 5)
+        });
 
         setFilters(prevFilters =>
           prevFilters.map(filter =>
@@ -265,6 +302,20 @@ const GestionDocumentosPage = () => {
       }
     }
   }, [selectedBucket, measurements, fields]);
+
+  useEffect(() => {
+    if (selectedBucket) {
+      console.log('🔍 Debug bucket data:', {
+        bucket: selectedBucket,
+        measurements: measurements.length,
+        fields: fields.length,
+        availableTagKeys: availableTagKeys.length,
+        sampleMeasurements: measurements.slice(0, 3),
+        sampleFields: fields.slice(0, 3),
+        sampleTagKeys: availableTagKeys.slice(0, 3)
+      });
+    }
+  }, [selectedBucket, measurements, fields, availableTagKeys]);
 
   const updateFilterValues = useCallback((filterId, values) => {
     setFilters(prevFilters =>
@@ -446,15 +497,26 @@ const GestionDocumentosPage = () => {
     console.log(`🔍 Building filter options for bucket: "${selectedBucket}"`);
     console.log(`📊 Available tag keys: ${availableTagKeys.length}`);
 
-    // TODOS los tags juntos, sin separar por categorías
-    const allOptions = availableTagKeys.map(tag => ({
+    // Filtrar campos que no queremos mostrar
+    const excludedFields = new Set([
+      '_start',
+      '_stop',
+      'table',
+      '_result',
+      '_table'
+    ]);
+
+    // TODOS los tags filtrados
+    const filteredTagKeys = availableTagKeys.filter(tag => !excludedFields.has(tag));
+
+    const allOptions = filteredTagKeys.map(tag => ({
       label: tag.startsWith('_') ? `${tag}` : tag,
       value: tag
     }));
 
     return {
       allOptions,
-      totalAvailable: availableTagKeys.length
+      totalAvailable: filteredTagKeys.length
     };
   }, [availableTagKeys, selectedBucket]);
 
