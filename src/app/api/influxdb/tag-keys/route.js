@@ -73,16 +73,15 @@ from(bucket: "${bucket}")
       }
     }
     
-    // Si no encontramos nada, devolver filtros básicos conocidos
-    console.log('🔄 No tag keys found, using basic fallbacks');
-    const fallbackTags = ['_measurement', '_field', '_time', '_value', 'PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type', 'host', 'instance'];
-    return NextResponse.json({ tagKeys: fallbackTags });
+    // SI NO ENCONTRAMOS NADA, devolver array vacío - NO HARDCODEAR
+    console.log('🔄 No tag keys found in any time range, returning empty array');
+    return NextResponse.json({ tagKeys: [] });
     
   } catch (error) {
     console.error('❌ Error fetching tag keys:', error);
     return NextResponse.json({ 
       error: error.message,
-      tagKeys: ['_measurement', '_field', '_time', '_value', 'PVO_Plant', 'PVO_Zone', 'PVO_id']
+      tagKeys: [] // VACÍO, no hardcodeado
     });
   }
 }

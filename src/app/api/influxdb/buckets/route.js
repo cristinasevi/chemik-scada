@@ -26,9 +26,11 @@ export async function GET() {
     return NextResponse.json({ buckets });
   } catch (error) {
     console.error('❌ Error fetching buckets:', error);
+    
+    // SI FALLA, devolver array vacío - NO HARDCODEAR
     return NextResponse.json({ 
       error: 'Error fetching buckets', 
-      buckets: ['DC', 'GeoMap', 'Omie', 'PV', '_monitoring', '_tasks']
+      buckets: [] // VACÍO, no hardcodeado
     });
   }
 }

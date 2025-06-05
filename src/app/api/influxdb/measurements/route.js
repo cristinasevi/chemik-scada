@@ -69,8 +69,8 @@ from(bucket: "${bucket}")
       const errorText = await response.text();
       console.error('❌ InfluxDB error response:', errorText);
       
-      // Fallback: usar los measurements del explore que ya funciona
-      console.log('🔄 Fallback: usando explore API para obtener measurements...');
+      // Si falla, intentar con explore básico
+      console.log('🔄 Fallback: usando explore básico...');
       const exploreResponse = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
         method: 'POST',
         headers: {
@@ -120,16 +120,11 @@ from(bucket: "${bucket}")
   } catch (error) {
     console.error('❌ Error fetching measurements:', error);
     
-    // Fallback con datos comunes que sabemos que existen
-    const fallbackMeasurements = [
-      'LAMAJA', 'RETAMAR', 'CPM', 'CT01', 'CT02', 'CT03', 'CT04', 
-      'SUBESTACION', 'PVO_Zone', 'modbus', 'influxdb_uptime_seconds'
-    ];
-    
-    console.log('🔄 Using fallback measurements:', fallbackMeasurements);
+    // SI FALLA TODO, devolver array vacío - NO HARDCODEAR
+    console.log('🔄 Returning empty array - no hardcoded data');
     return NextResponse.json({ 
       error: error.message,
-      measurements: fallbackMeasurements
+      measurements: [] // VACÍO, no hardcodeado
     });
   }
 }

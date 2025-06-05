@@ -97,40 +97,14 @@ universe.functions()
 
         console.log('✅ Funciones obtenidas desde InfluxDB:', availableFunctions);
       } else {
-        console.warn('⚠️ No se pudieron obtener funciones desde la API, usando fallback');
-        
-        // Fallback: intentar con query alternativa
-        const alternativeQuery = `
-import "experimental"
-experimental.list()
-  |> filter(fn: (r) => contains(value: r.name, set: ["mean", "max", "min", "sum", "count", "first", "last"]))
-  |> keep(columns: ["name"])`;
-
-        const altResponse = await fetch(`${INFLUX_URL}/api/v2/query?org=${INFLUX_ORG}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Token ${INFLUX_TOKEN}`,
-            'Content-Type': 'application/vnd.flux',
-            'Accept': 'application/csv'
-          },
-          body: alternativeQuery
-        });
-
-        if (altResponse.ok) {
-          const altCsvData = await altResponse.text();
-          // Procesar datos alternativos...
-          console.log('✅ Usando query alternativa');
-        } else {
-          console.log('⚠️ Query alternativa también falló, usando funciones comunes conocidas');
-          // Solo si todo falla, usar algunas funciones básicas conocidas
-          availableFunctions = ['none', 'mean', 'max', 'min', 'sum', 'count', 'first', 'last'];
-        }
+        console.warn('⚠️ No se pudieron obtener funciones desde la API, usando solo "none"');
+        availableFunctions = ['none']; // Solo "none", no hardcodear más
       }
 
     } catch (apiError) {
       console.error('❌ Error obteniendo funciones desde API:', apiError);
-      console.log('🔄 Usando funciones básicas como fallback');
-      availableFunctions = ['none', 'mean', 'max', 'min', 'sum', 'count', 'first', 'last'];
+      console.log('🔄 Usando solo "none" como fallback');
+      availableFunctions = ['none']; // Solo "none", no hardcodear más
     }
 
     console.log('✅ Funciones finales disponibles:', availableFunctions);
@@ -146,7 +120,7 @@ experimental.list()
     console.error('❌ Error general:', error);
     
     return NextResponse.json({ 
-      functions: ['none'],
+      functions: ['none'], // Solo "none", no hardcodear más
       source: 'error',
       error: error.message,
       message: 'Error de conexión con InfluxDB'

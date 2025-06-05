@@ -1,3 +1,4 @@
+// src/app/api/influxdb/all-filters/route.js - COMPLETAMENTE SIN HARDCODED
 import { NextResponse } from 'next/server';
 
 const INFLUX_URL = process.env.INFLUXDB_URL;
@@ -20,7 +21,7 @@ export async function POST(request) {
     const timeRanges = ['-1h', '-6h', '-24h', '-7d', '-30d'];
     let allFields = new Set();
     let measurements = new Set();
-    let fieldsByMeasurement = new Map();
+    let fieldNames = new Set();
 
     for (const timeRange of timeRanges) {
       console.log(`🔍 Explorando rango: ${timeRange}`);
@@ -104,6 +105,7 @@ export async function POST(request) {
                 if (row[valueIndex]) {
                   const fieldKey = row[valueIndex].replace(/"/g, '').trim();
                   if (fieldKey && fieldKey !== '' && fieldKey !== 'null') {
+                    fieldNames.add(fieldKey);
                     allFields.add(`_field:${fieldKey}`); // Prefix para distinguir
                   }
                 }
@@ -218,37 +220,42 @@ export async function POST(request) {
       }
     }
 
-    // Organizar filtros por categorías
-    const systemFields = ['_measurement', '_field', '_time', '_value', '_start', '_stop'];
+    // Organizar filtros por categorías DINÁMICAMENTE - NO hardcodear
+    const systemFields = [];
     const tagFields = [];
-    const fieldNames = [];
-    const customFields = [];
+    const processedFieldNames = [];
 
     Array.from(allFields).forEach(field => {
-      if (systemFields.includes(field)) {
-        // Ya están en systemFields
-      } else if (field.startsWith('_field:')) {
-        fieldNames.push(field.replace('_field:', ''));
-      } else if (field.startsWith('_') && !systemFields.includes(field)) {
-        // Campos del sistema no incluidos arriba
+      if (field.startsWith('_field:')) {
+        // Es un field name
+        processedFieldNames.push(field.replace('_field:', ''));
+      } else if (field.startsWith('_')) {
+        // Es un campo del sistema
         systemFields.push(field);
-      } else {
-        // Tags personalizados
+      } else if (field && field !== 'result' && field !== 'table') {
+        // Es un tag personalizado
         tagFields.push(field);
       }
     });
 
-    // Resultado final organizado
+    // Agregar field names adicionales que encontramos directamente
+    Array.from(fieldNames).forEach(field => {
+      if (!processedFieldNames.includes(field)) {
+        processedFieldNames.push(field);
+      }
+    });
+
+    // Resultado final organizado completamente dinámico
     const result = {
       systemFields: systemFields.sort(),
       tagFields: tagFields.sort(),
-      fieldNames: fieldNames.sort(),
+      fieldNames: processedFieldNames.sort(),
       measurements: Array.from(measurements).sort(),
       totalFields: allFields.size,
       summary: {
         systemFields: systemFields.length,
         tagFields: tagFields.length,
-        fieldNames: fieldNames.length,
+        fieldNames: processedFieldNames.length,
         measurements: measurements.size
       }
     };
@@ -265,21 +272,21 @@ export async function POST(request) {
   } catch (error) {
     console.error('❌ Error obteniendo filtros:', error);
     
-    // Fallback con campos básicos conocidos
+    // SI FALLA TODO, devolver arrays vacíos - NO HARDCODEAR
     return NextResponse.json({
       success: false,
       error: error.message,
       filters: {
-        systemFields: ['_measurement', '_field', '_time', '_value'],
-        tagFields: ['PVO_Plant', 'PVO_Zone', 'PVO_id', 'PVO_type', 'host', 'instance'],
-        fieldNames: ['P', 'Q', 'RadPOA01', 'DispoElec', 'DispoMec', 'EPV', 'H_PoA'],
-        measurements: ['LAMAJA', 'RETAMAR', 'modbus'],
-        totalFields: 15,
+        systemFields: [],
+        tagFields: [],
+        fieldNames: [],
+        measurements: [],
+        totalFields: 0,
         summary: {
-          systemFields: 4,
-          tagFields: 6,
-          fieldNames: 7,
-          measurements: 3
+          systemFields: 0,
+          tagFields: 0,
+          fieldNames: 0,
+          measurements: 0
         }
       },
       timestamp: new Date().toISOString()

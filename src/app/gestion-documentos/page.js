@@ -103,13 +103,12 @@ const GestionDocumentosPage = () => {
       setAggregationFunctions(data.functions || []);
     } catch (error) {
       console.error('Error loading aggregation functions:', error);
-      setAggregationFunctions(['none', 'mean', 'max', 'min', 'sum', 'count']);
+      setAggregationFunctions(['none']);
     }
   };
 
-  // OPTIMIZACIÓN PRINCIPAL: Cargar todo de una vez con cache
   const loadBucketData = async () => {
-    // Verificar cache primero
+    // Verificar cache primero - cache separado por bucket
     if (bucketCache.has(selectedBucket)) {
       console.log('📦 Loading bucket data from cache:', selectedBucket);
       const cachedData = bucketCache.get(selectedBucket);
@@ -119,119 +118,63 @@ const GestionDocumentosPage = () => {
       return;
     }
 
-    console.log('🔄 Loading fresh bucket data for:', selectedBucket);
+    console.log('🚀 Loading dynamic filters for bucket:', selectedBucket);
     setLoadingStates(prev => ({ ...prev, bucketData: true }));
-    
+
     try {
-      // Hacer una sola llamada a explore que nos da todo
-      const exploreResponse = await fetch('/api/influxdb/explore', {
+      // Usar la API rápida para obtener filtros específicos de este bucket
+      const fastResponse = await fetch('/api/influxdb/fast-filters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bucket: selectedBucket })
       });
-      
-      const exploreData = await exploreResponse.json();
-      console.log('📊 Explore data received:', exploreData);
 
-      // Procesar datos
-      const measurementSet = new Set();
-      const fieldSet = new Set();
-      const tagSet = new Set();
+      const fastData = await fastResponse.json();
+      console.log(`⚡ Dynamic filters for bucket "${selectedBucket}":`, fastData);
 
-      // Extraer measurements y fields de los datos de muestra
-      if (exploreData.sampleData) {
-        const lines = exploreData.sampleData.split('\n');
-        if (lines.length > 1) {
-          const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-          
-          // Añadir todos los headers como posibles tags (excepto sistema)
-          headers.forEach(header => {
-            if (header && header !== 'result' && header !== 'table') {
-              if (!header.startsWith('_') || ['_measurement', '_field', '_time', '_value'].includes(header)) {
-                // Skip, these are system fields
-              } else {
-                tagSet.add(header);
-              }
-            }
-          });
+      if (fastData.success && fastData.filters) {
+        const { filters } = fastData;
 
-          const measurementIndex = headers.indexOf('_measurement');
-          const fieldIndex = headers.indexOf('_field');
+        // Procesar datos específicos de este bucket
+        const bucketSpecificData = {
+          measurements: filters.measurements || [],
+          fields: filters.fieldNames || [],
+          availableTagKeys: [
+            ...filters.systemFields,
+            ...filters.tagFields
+          ] || []
+        };
 
-          // Extraer measurements y fields únicos
-          for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            
-            const row = lines[i].split(',');
-            
-            // Measurements
-            if (measurementIndex !== -1 && row[measurementIndex]) {
-              const measurement = row[measurementIndex].replace(/"/g, '').trim();
-              if (measurement) measurementSet.add(measurement);
-            }
-            
-            // Fields
-            if (fieldIndex !== -1 && row[fieldIndex]) {
-              const field = row[fieldIndex].replace(/"/g, '').trim();
-              if (field) fieldSet.add(field);
-            }
-          }
-        }
-      }
-
-      // Agregar tags disponibles del explore
-      if (exploreData.availableTags) {
-        exploreData.availableTags.forEach(tag => {
-          if (!tag.startsWith('_') || ['_measurement', '_field', '_time', '_value'].includes(tag)) {
-            // Skip system fields or add them separately
-          } else {
-            tagSet.add(tag);
-          }
+        console.log(`✅ Bucket "${selectedBucket}" loaded:`, {
+          measurements: bucketSpecificData.measurements.length,
+          fields: bucketSpecificData.fields.length,
+          tagKeys: bucketSpecificData.availableTagKeys.length
         });
+
+        // Cache específico por bucket
+        setBucketCache(prev => new Map(prev).set(selectedBucket, bucketSpecificData));
+
+        // Actualizar estado con datos específicos del bucket
+        setMeasurements(bucketSpecificData.measurements);
+        setFields(bucketSpecificData.fields);
+        setAvailableTagKeys(bucketSpecificData.availableTagKeys);
+
+      } else {
+        throw new Error(fastData.error || 'No se pudieron cargar filtros del bucket');
       }
-
-      // Fallback: si no tenemos measurements, intentar con measurements API
-      if (measurementSet.size === 0) {
-        try {
-          const measurementsResponse = await fetch('/api/influxdb/measurements', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bucket: selectedBucket })
-          });
-          const measurementsData = await measurementsResponse.json();
-          if (measurementsData.measurements) {
-            measurementsData.measurements.forEach(m => measurementSet.add(m));
-          }
-        } catch (error) {
-          console.warn('Failed to load measurements fallback:', error);
-        }
-      }
-
-      const processedData = {
-        measurements: Array.from(measurementSet).sort(),
-        fields: Array.from(fieldSet).sort(), 
-        availableTagKeys: Array.from(tagSet).sort()
-      };
-
-      console.log('✅ Processed bucket data:', processedData);
-
-      // Guardar en cache
-      setBucketCache(prev => new Map(prev).set(selectedBucket, processedData));
-      
-      // Actualizar estado
-      setMeasurements(processedData.measurements);
-      setFields(processedData.fields);
-      setAvailableTagKeys(processedData.availableTagKeys);
 
     } catch (error) {
-      console.error('❌ Error loading bucket data:', error);
-      
-      // Fallback básico
+      console.error(`❌ Error loading filters for bucket "${selectedBucket}":`, error);
+
+      // Si falla, limpiar todo - específico del bucket
       setMeasurements([]);
       setFields([]);
       setAvailableTagKeys([]);
+
+      // Mostrar mensaje de error específico del bucket
+      console.warn(`⚠️ No se pudieron cargar filtros para el bucket "${selectedBucket}"`);
     }
-    
+
     setLoadingStates(prev => ({ ...prev, bucketData: false }));
   };
 
@@ -258,21 +201,21 @@ const GestionDocumentosPage = () => {
   // OPTIMIZACIÓN: Memoizar la carga de valores de filtros
   const updateFilterKey = useCallback(async (filterId, key) => {
     console.log('🔄 Updating filter key:', key);
-    
+
     setFilters(prevFilters =>
       prevFilters.map(filter =>
         filter.id === filterId
-          ? { 
-              ...filter, 
-              key, 
-              selectedValues: [], 
-              availableValues: [], 
-              loading: !['_time', '_value'].includes(key), // Solo loading si necesita cargar valores
-              timeStart: '', 
-              timeEnd: '', 
-              valueMin: '', 
-              valueMax: '' 
-            }
+          ? {
+            ...filter,
+            key,
+            selectedValues: [],
+            availableValues: [],
+            loading: !['_time', '_value'].includes(key), // Solo loading si necesita cargar valores
+            timeStart: '',
+            timeEnd: '',
+            valueMin: '',
+            valueMax: ''
+          }
           : filter
       )
     );
@@ -500,20 +443,20 @@ const GestionDocumentosPage = () => {
 
   // Memoizar opciones disponibles para filtros
   const filterOptions = useMemo(() => {
-    const systemFields = [
-      { label: '_measurement', value: '_measurement' },
-      { label: '_field', value: '_field' },
-      { label: '_time', value: '_time' },
-      { label: '_value', value: '_value' }
-    ];
+    console.log(`🔍 Building filter options for bucket: "${selectedBucket}"`);
+    console.log(`📊 Available tag keys: ${availableTagKeys.length}`);
 
-    const tagOptions = availableTagKeys.map(tag => ({
-      label: tag,
+    // TODOS los tags juntos, sin separar por categorías
+    const allOptions = availableTagKeys.map(tag => ({
+      label: tag.startsWith('_') ? `${tag}` : tag,
       value: tag
     }));
 
-    return { systemFields, tagOptions };
-  }, [availableTagKeys]);
+    return {
+      allOptions,
+      totalAvailable: availableTagKeys.length
+    };
+  }, [availableTagKeys, selectedBucket]);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -601,18 +544,20 @@ const GestionDocumentosPage = () => {
                           className="flex-1 p-2 border border-custom rounded bg-panel text-primary text-sm"
                           disabled={loadingStates.bucketData}
                         >
-                          <option value="">Select filter...</option>
-                          <optgroup label="System Fields">
-                            {filterOptions.systemFields.map(option => (
+                          <option value="">
+                            {!selectedBucket
+                              ? "Selecciona un bucket primero..."
+                              : filterOptions.totalAvailable === 0
+                                ? `Sin filtros disponibles en "${selectedBucket}"`
+                                : `Seleccionar filtro...`
+                            }
+                          </option>
+
+                          {/* Solo mostrar opciones si hay un bucket seleccionado y filtros disponibles */}
+                          {selectedBucket && filterOptions.totalAvailable > 0 && (
+                            filterOptions.allOptions.map(option => (
                               <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </optgroup>
-                          {filterOptions.tagOptions.length > 0 && (
-                            <optgroup label="Tag Keys">
-                              {filterOptions.tagOptions.map(option => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </optgroup>
+                            ))
                           )}
                         </select>
 
@@ -789,8 +734,8 @@ const GestionDocumentosPage = () => {
                 <button
                   onClick={() => setUseCustomQuery(!useCustomQuery)}
                   className={`px-3 py-1 text-xs rounded cursor-pointer ${useCustomQuery
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-header-table text-primary border border-custom'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-header-table text-primary border border-custom'
                     }`}
                 >
                   Custom

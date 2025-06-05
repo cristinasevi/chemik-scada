@@ -78,11 +78,11 @@ from(bucket: "${bucket}")
       }
     }
     
-    // Si no encontramos datos, devolver estructura vacía pero válida
+    // SI NO ENCONTRAMOS DATOS, devolver estructura vacía - NO HARDCODEAR
     console.log('🔄 No data found in bucket, returning empty structure');
     return NextResponse.json({ 
       measurements: [],
-      availableTags: ['_measurement', '_field', '_time', '_value'], // Campos básicos
+      availableTags: [], // VACÍO, no hardcodeado
       headers: [],
       sampleData: ''
     });
@@ -92,7 +92,7 @@ from(bucket: "${bucket}")
     return NextResponse.json({ 
       error: error.message,
       measurements: [],
-      availableTags: ['_measurement', '_field', '_time', '_value'],
+      availableTags: [], // VACÍO, no hardcodeado
       headers: []
     });
   }

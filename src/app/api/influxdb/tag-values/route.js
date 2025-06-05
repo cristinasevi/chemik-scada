@@ -98,28 +98,15 @@ from(bucket: "${bucket}")
       }
     }
     
-    // Fallback: valores comunes según el tipo de tag
-    console.log('🔄 No values found, providing fallbacks based on tag type');
-    let fallbackValues = [];
-    
-    if (tagKey.toLowerCase().includes('plant')) {
-      fallbackValues = ['LAMAJA', 'RETAMAR'];
-    } else if (tagKey.toLowerCase().includes('zone')) {
-      fallbackValues = ['CPM', 'CT01', 'CT02', 'CT03', 'CT04', 'SUBESTACION', 'RETAMAR'];
-    } else if (tagKey.toLowerCase().includes('id')) {
-      fallbackValues = ['INV01', 'INV02', 'INV03', 'INV04', 'INV05', 'INV06', 'INV07', 'INV08', 'INV09', 'INV10', 'INV11'];
-    } else if (tagKey.toLowerCase().includes('type')) {
-      fallbackValues = ['string', 'number', 'boolean'];
-    }
-    
-    console.log(`🔄 Using fallback values for ${tagKey}:`, fallbackValues);
-    return NextResponse.json({ values: fallbackValues });
+    // SI NO SE ENCUENTRAN VALORES, devolver array vacío - NO HARDCODEAR
+    console.log('🔄 No values found in any time range, returning empty array');
+    return NextResponse.json({ values: [] });
     
   } catch (error) {
     console.error('❌ Error fetching tag values:', error);
     return NextResponse.json({ 
       error: error.message,
-      values: [] 
+      values: [] // VACÍO, no hardcodeado
     });
   }
 }
