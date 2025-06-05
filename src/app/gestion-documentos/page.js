@@ -23,7 +23,7 @@ const GestionDocumentosPage = () => {
 
   const [timeRange, setTimeRange] = useState({
     start: '-1h',
-    stop: 'now'
+    stop: 'now()'
   });
 
   const [windowPeriod, setWindowPeriod] = useState('auto');
@@ -306,7 +306,15 @@ const GestionDocumentosPage = () => {
     }
 
     let query = `from(bucket: "${selectedBucket}")\n`;
-    query += `  |> range(start: ${timeRange.start}, stop: ${timeRange.stop})\n`;
+
+    // CORRECCIÓN: Asegurar que los valores de tiempo están correctamente formateados
+    const startTime = timeRange.start || '-1h';
+    const stopTime = timeRange.stop || 'now()';
+
+    // Si stop es 'now', usar 'now()' en lugar de 'now'
+    const formattedStop = stopTime === 'now' ? 'now()' : stopTime;
+
+    query += `  |> range(start: ${startTime}, stop: ${formattedStop})\n`;
 
     // Add filters
     filters.forEach(filter => {
@@ -316,9 +324,18 @@ const GestionDocumentosPage = () => {
 
       if (key === '_time') {
         if (filter.timeStart || filter.timeEnd) {
-          const start = filter.timeStart ? new Date(filter.timeStart).toISOString() : timeRange.start;
-          const stop = filter.timeEnd ? new Date(filter.timeEnd).toISOString() : timeRange.stop;
-          query += `  |> range(start: ${start}, stop: ${stop})\n`;
+          // CORRECCIÓN: Formatear fechas ISO correctamente para Flux
+          const start = filter.timeStart ? `time(v: "${new Date(filter.timeStart).toISOString()}")` : startTime;
+          const stop = filter.timeEnd ? `time(v: "${new Date(filter.timeEnd).toISOString()}")` : formattedStop;
+
+          // Solo agregar filtro de tiempo adicional si es diferente del rango principal
+          if (filter.timeStart || filter.timeEnd) {
+            query += `  |> filter(fn: (r) => r._time >= ${start}`;
+            if (filter.timeEnd) {
+              query += ` and r._time <= ${stop}`;
+            }
+            query += `)\n`;
+          }
         }
       } else if (key === '_value') {
         if (filter.valueMin !== '' || filter.valueMax !== '') {
@@ -332,10 +349,17 @@ const GestionDocumentosPage = () => {
       } else { // equals operator for all other fields
         if (filter.selectedValues.length > 0) {
           if (filter.selectedValues.length === 1) {
-            query += `  |> filter(fn: (r) => r.${key} == "${filter.selectedValues[0]}")\n`;
+            // CORRECCIÓN: Usar notación de corchetes para campos que pueden contener caracteres especiales
+            const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+              ? `r.${key}`
+              : `r["${key}"]`;
+            query += `  |> filter(fn: (r) => ${fieldRef} == "${filter.selectedValues[0]}")\n`;
           } else {
             const values = filter.selectedValues.map(v => `"${v}"`).join(', ');
-            query += `  |> filter(fn: (r) => contains(value: r.${key}, set: [${values}]))\n`;
+            const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+              ? `r.${key}`
+              : `r["${key}"]`;
+            query += `  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))\n`;
           }
         }
       }
@@ -587,7 +611,7 @@ const GestionDocumentosPage = () => {
                         {/* Remove Filter Button */}
                         <button
                           onClick={() => removeFilter(filter.id)}
-                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded cursor-pointer"
+                          className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
                           title="Remove filter"
                         >
                           <X size={16} />
@@ -707,9 +731,13 @@ const GestionDocumentosPage = () => {
                   <input
                     type="text"
                     value={timeRange.stop}
-                    onChange={(e) => setTimeRange({ ...timeRange, stop: e.target.value })}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const formattedValue = value === 'now' ? 'now()' : value;
+                      setTimeRange({ ...timeRange, stop: formattedValue });
+                    }}
                     className="w-full p-2 border border-custom rounded-lg bg-panel text-primary text-sm"
-                    placeholder="now"
+                    placeholder="now() or specific time"
                   />
                 </div>
               </div>
@@ -799,57 +827,6 @@ const GestionDocumentosPage = () => {
             )}
             {loadingStates.executing ? 'Running Query...' : 'Run Query'}
           </button>
-
-          {/* Results Summary */}
-          {queryResult && (
-            <div className="bg-panel rounded-lg p-4">
-              <h3 className="text-sm font-semibold mb-3 text-primary">Results</h3>
-
-              {queryResult.success ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-4 text-center">
-                    <div>
-                      <div className="text-lg font-bold text-blue-500">{queryResult.rows}</div>
-                      <div className="text-xs text-secondary">Rows</div>
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-green-500">{queryResult.executionTime}</div>
-                      <div className="text-xs text-secondary">Time</div>
-                    </div>
-                  </div>
-
-                  {queryResult.data && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-primary">Preview</span>
-                        <button
-                          onClick={() => setShowAdvanced(!showAdvanced)}
-                          className="flex items-center gap-1 text-xs text-secondary hover:text-primary cursor-pointer"
-                        >
-                          {showAdvanced ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                          {showAdvanced ? 'Hide' : 'Show'} Data
-                        </button>
-                      </div>
-
-                      {showAdvanced && (
-                        <div className="bg-header-table border border-custom rounded-lg p-3 max-h-40 overflow-auto">
-                          <pre className="text-primary font-mono text-xs whitespace-pre-wrap">
-                            {queryResult.data.split('\n').slice(0, 10).join('\n')}
-                            {queryResult.data.split('\n').length > 10 && '\n... (more data available)'}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="badge-red border border-red rounded-lg p-3">
-                  <div className="text-red-error-primary font-medium text-sm mb-1">Query Error</div>
-                  <div className="text-red-error-secondary text-xs">{queryResult.error}</div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
