@@ -21,7 +21,7 @@ const Navbar = () => {
     { icon: Activity, label: "La Maja", path: "/lamaja" },
     { icon: Activity, label: "Retamar", path: "/retamar" },
     { icon: FileText, label: "Gestión de Documentos", path: "/gestion-documentos" },
-    { icon: Download, label: "Exportación de variables", path: "/exportacion" },
+    { icon: Download, label: "Exportación de variables", path: "/exportacion-variables" },
   ];
 
   // Submenú para La Maja
