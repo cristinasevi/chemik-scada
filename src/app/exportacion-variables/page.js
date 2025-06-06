@@ -20,6 +20,7 @@ const ExportacionVariablesPage = () => {
     valueMax: ''
   }]);
   const [aggregationFunctions, setAggregationFunctions] = useState([]);
+  const [reloadQueue, setReloadQueue] = useState(new Set());
 
   // Cache para evitar llamadas repetidas
   const [bucketCache, setBucketCache] = useState(new Map());
@@ -286,9 +287,183 @@ const ExportacionVariablesPage = () => {
     setFilters(prev => [...prev, newFilter]);
   }, []);
 
+  const reloadFilterValues = useCallback(async (filterId) => {
+    const currentFilters = filters; // Usar snapshot actual
+    const filter = currentFilters.find(f => f.id === filterId);
+
+    if (!filter || !filter.key || ['_time', '_value'].includes(filter.key)) {
+      return;
+    }
+
+    // Evitar recargas duplicadas
+    if (filter.loading) {
+      return;
+    }
+
+    // Marcar como cargando
+    setFilters(prevFilters =>
+      prevFilters.map(f =>
+        f.id === filterId ? { ...f, loading: true } : f
+      )
+    );
+
+    try {
+      let availableValues = [];
+
+      // OBTENER FILTROS ANTERIORES APLICADOS usando snapshot actual
+      const currentFilterIndex = currentFilters.findIndex(f => f.id === filterId);
+      const previousFilters = currentFilters.slice(0, currentFilterIndex)
+        .filter(filter => filter.key && filter.selectedValues.length > 0 &&
+          filter.key !== '_time' && filter.key !== '_value');
+
+      if (previousFilters.length === 0) {
+        if (filter.key === '_measurement') {
+          availableValues = measurements;
+        } else if (filter.key === '_field') {
+          availableValues = fields;
+        } else {
+          const response = await fetch('/api/influxdb/universal-values', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bucket: selectedBucket,
+              fieldName: filter.key,
+              timeRange: '-24h',
+              maxValues: 500
+            })
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            availableValues = data.values || [];
+          }
+        }
+      } else {
+        // Construir query optimizada
+        let baseQuery = `from(bucket: "${selectedBucket}")
+  |> range(start: -24h)`;
+
+        previousFilters.forEach(prevFilter => {
+          if (prevFilter.selectedValues.length === 1) {
+            const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
+              ? `r.${prevFilter.key}`
+              : `r["${prevFilter.key}"]`;
+            baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${prevFilter.selectedValues[0]}")`;
+          } else if (prevFilter.selectedValues.length > 1) {
+            const values = prevFilter.selectedValues.map(v => `"${v}"`).join(', ');
+            const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
+              ? `r.${prevFilter.key}`
+              : `r["${prevFilter.key}"]`;
+            baseQuery += `\n  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))`;
+          }
+        });
+
+        const distinctQuery = `${baseQuery}
+  |> keep(columns: ["${filter.key}"])
+  |> distinct(column: "${filter.key}")
+  |> limit(n: 500)
+  |> sort(columns: ["${filter.key}"])
+  |> yield(name: "distinct_values")`;
+
+        const response = await fetch('/api/influxdb/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: distinctQuery,
+            format: 'csv'
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.data && typeof data.rows === 'number') {
+          const lines = data.data.split('\n').filter(line => line.trim());
+          if (lines.length > 1) {
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+            const keyIndex = headers.indexOf(filter.key);
+
+            if (keyIndex !== -1) {
+              const uniqueValues = new Set();
+              lines.slice(1).forEach(line => {
+                const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
+                if (cells[keyIndex] && cells[keyIndex] !== '') {
+                  uniqueValues.add(cells[keyIndex]);
+                }
+              });
+              availableValues = Array.from(uniqueValues).sort();
+            }
+          }
+        } else {
+          // Fallback optimizado
+          const fallbackResponse = await fetch('/api/influxdb/universal-values', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bucket: selectedBucket,
+              fieldName: filter.key,
+              timeRange: '-24h',
+              maxValues: 500,
+              appliedFilters: previousFilters.map(pf => ({
+                key: pf.key,
+                values: pf.selectedValues
+              }))
+            })
+          });
+
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData.success) {
+            availableValues = fallbackData.values || [];
+          }
+        }
+      }
+
+      // Actualizar solo si el filtro aún existe y no se ha modificado
+      setFilters(prevFilters =>
+        prevFilters.map(f =>
+          f.id === filterId
+            ? {
+              ...f,
+              availableValues,
+              loading: false,
+              selectedValues: f.selectedValues.filter(val => availableValues.includes(val))
+            }
+            : f
+        )
+      );
+
+    } catch (error) {
+      console.error('Error reloading filter values:', error);
+      setFilters(prevFilters =>
+        prevFilters.map(f =>
+          f.id === filterId ? { ...f, availableValues: [], loading: false } : f
+        )
+      );
+    }
+  }, [selectedBucket, measurements, fields, filters]);
+
   const removeFilter = useCallback((filterId) => {
-    setFilters(prev => prev.filter(filter => filter.id !== filterId));
-  }, []);
+    setFilters(prev => {
+      const filterToRemove = prev.find(f => f.id === filterId);
+      const removedIndex = prev.findIndex(f => f.id === filterId);
+      const newFilters = prev.filter(filter => filter.id !== filterId);
+
+      // Solo recargar filtros posteriores si el filtro eliminado tenía valores que podrían afectar
+      if (filterToRemove?.selectedValues?.length > 0 && !['_time', '_value'].includes(filterToRemove.key)) {
+        setTimeout(() => {
+          // Recargar solo los valores disponibles de filtros posteriores, manteniendo selecciones
+          newFilters.slice(removedIndex).forEach((filter, index) => {
+            if (filter.key && !['_time', '_value'].includes(filter.key)) {
+              setTimeout(() => {
+                reloadFilterValues(filter.id);
+              }, index * 50);
+            }
+          });
+        }, 100);
+      }
+
+      return newFilters;
+    });
+  }, [reloadFilterValues]);
 
   const updateFilterKey = useCallback(async (filterId, key) => {
     setFilters(prevFilters =>
@@ -299,7 +474,7 @@ const ExportacionVariablesPage = () => {
             key,
             selectedValues: [],
             availableValues: [],
-            loading: !['_time', '_value'].includes(key), // Solo loading si necesita cargar valores
+            loading: !['_time', '_value'].includes(key),
             timeStart: '',
             timeEnd: '',
             valueMin: '',
@@ -313,46 +488,70 @@ const ExportacionVariablesPage = () => {
       try {
         let availableValues = [];
 
-        // Usar datos ya cargados si están disponibles y no hay filtros aplicados
-        const appliedFilters = buildAppliedFilters(filterId);
+        // OBTENER FILTROS ANTERIORES APLICADOS
+        const currentFilterIndex = filters.findIndex(f => f.id === filterId);
+        const previousFilters = filters.slice(0, currentFilterIndex)
+          .filter(filter => filter.key && filter.selectedValues.length > 0 &&
+            filter.key !== '_time' && filter.key !== '_value');
 
-        if (key === '_measurement' && appliedFilters.length === 0) {
-          availableValues = measurements;
-        } else if (key === '_field' && appliedFilters.length === 0) {
-          availableValues = fields;
+        // Si no hay filtros anteriores, usar datos base
+        if (previousFilters.length === 0) {
+          if (key === '_measurement') {
+            availableValues = measurements;
+          } else if (key === '_field') {
+            availableValues = fields;
+          } else {
+            // Para otros campos sin filtros previos, usar la API universal
+            const response = await fetch('/api/influxdb/universal-values', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucket: selectedBucket,
+                fieldName: key,
+                timeRange: '-24h',
+                maxValues: 500
+              })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+              availableValues = data.values || [];
+            }
+          }
         } else {
-          // Construir query de InfluxDB que tenga en cuenta los filtros ya aplicados
-          let baseQuery = `from(bucket: "${selectedBucket}")
-  |> range(start: -24h)`;
 
-          // Agregar filtros ya aplicados
-          appliedFilters.forEach(appliedFilter => {
-            if (appliedFilter.values.length === 1) {
-              const fieldRef = appliedFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(appliedFilter.key)
-                ? `r.${appliedFilter.key}`
-                : `r["${appliedFilter.key}"]`;
-              baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${appliedFilter.values[0]}")`;
-            } else if (appliedFilter.values.length > 1) {
-              const values = appliedFilter.values.map(v => `"${v}"`).join(', ');
-              const fieldRef = appliedFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(appliedFilter.key)
-                ? `r.${appliedFilter.key}`
-                : `r["${appliedFilter.key}"]`;
+          let baseQuery = `from(bucket: "${selectedBucket}")
+            |> range(start: -24h)`;
+
+          // Aplicar SOLO los filtros anteriores
+          previousFilters.forEach(prevFilter => {
+            if (prevFilter.selectedValues.length === 1) {
+              const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
+                ? `r.${prevFilter.key}`
+                : `r["${prevFilter.key}"]`;
+              baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${prevFilter.selectedValues[0]}")`;
+            } else if (prevFilter.selectedValues.length > 1) {
+              const values = prevFilter.selectedValues.map(v => `"${v}"`).join(', ');
+              const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
+                ? `r.${prevFilter.key}`
+                : `r["${prevFilter.key}"]`;
               baseQuery += `\n  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))`;
             }
           });
 
-          // Agregar la parte para obtener valores únicos del campo solicitado
+          // Obtener valores únicos del campo actual
           const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
             ? `r.${key}`
             : `r["${key}"]`;
 
           const distinctQuery = `${baseQuery}
-  |> keep(columns: ["${key}"])
-  |> distinct(column: "${key}")
-  |> limit(n: 500)
-  |> yield(name: "distinct_values")`;
+            |> keep(columns: ["${key}"])
+            |> distinct(column: "${key}")
+            |> limit(n: 500)
+            |> sort(columns: ["${key}"])
+            |> yield(name: "distinct_values")`;
 
-          // Llamar a la API con la query construida
+          // Ejecutar la query a través de tu API
           const response = await fetch('/api/influxdb/query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -364,16 +563,15 @@ const ExportacionVariablesPage = () => {
 
           const data = await response.json();
 
-          if (data.success && data.data) {
+          if (data.data && typeof data.rows === 'number') {
             // Parsear el CSV resultado
             const lines = data.data.split('\n').filter(line => line.trim());
+
             if (lines.length > 1) {
-              // Encontrar el índice de la columna que necesitamos
               const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
               const keyIndex = headers.indexOf(key);
 
               if (keyIndex !== -1) {
-                // Extraer valores únicos
                 const uniqueValues = new Set();
                 lines.slice(1).forEach(line => {
                   const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
@@ -385,7 +583,9 @@ const ExportacionVariablesPage = () => {
               }
             }
           } else {
-            // Fallback a la API universal si falla la query personalizada
+            console.error('Query failed or returned no data. Response:', data);
+
+            // Fallback: usar API universal con filtros aplicados
             const fallbackResponse = await fetch('/api/influxdb/universal-values', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -394,37 +594,21 @@ const ExportacionVariablesPage = () => {
                 fieldName: key,
                 timeRange: '-24h',
                 maxValues: 500,
-                // Pasar filtros aplicados si la API los soporta
-                appliedFilters: appliedFilters
+                appliedFilters: previousFilters.map(pf => ({
+                  key: pf.key,
+                  values: pf.selectedValues
+                }))
               })
             });
 
             const fallbackData = await fallbackResponse.json();
             if (fallbackData.success) {
               availableValues = fallbackData.values || [];
-            } else {
-              // Último fallback
-              try {
-                const lastFallbackResponse = await fetch('/api/influxdb/tag-values', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    bucket: selectedBucket,
-                    tagKey: key
-                  })
-                });
-
-                const lastFallbackData = await lastFallbackResponse.json();
-                if (lastFallbackData.success) {
-                  availableValues = lastFallbackData.values || [];
-                }
-              } catch (lastFallbackError) {
-                console.error('All fallbacks failed:', lastFallbackError);
-              }
             }
           }
         }
 
+        // Actualizar el filtro con los valores obtenidos
         setFilters(prevFilters =>
           prevFilters.map(filter =>
             filter.id === filterId
@@ -432,8 +616,9 @@ const ExportacionVariablesPage = () => {
               : filter
           )
         );
+
       } catch (error) {
-        console.error('Error loading filter values:', error);
+        console.error('Error loading dependent filter values:', error);
         setFilters(prevFilters =>
           prevFilters.map(filter =>
             filter.id === filterId
@@ -443,7 +628,7 @@ const ExportacionVariablesPage = () => {
         );
       }
     }
-  }, [selectedBucket, measurements, fields, buildAppliedFilters]);
+  }, [selectedBucket, measurements, fields, filters]);
 
   const updateFilterValues = useCallback((filterId, values) => {
     setFilters(prevFilters =>
@@ -453,7 +638,68 @@ const ExportacionVariablesPage = () => {
           : filter
       )
     );
-  }, []);
+
+    // Usar la misma lógica de debounce para consistency
+    const currentFilterIndex = filters.findIndex(f => f.id === filterId);
+    const dependentFilterIds = filters
+      .slice(currentFilterIndex + 1)
+      .filter(f => f.key && !['_time', '_value'].includes(f.key))
+      .map(f => f.id);
+
+    setReloadQueue(prev => {
+      const newQueue = new Set([...prev, ...dependentFilterIds]);
+      return newQueue;
+    });
+  }, [filters]);
+
+  const handleFilterValueChange = useCallback((filterId, value, isChecked) => {
+    // Actualizar inmediatamente el estado visual
+    setFilters(prevFilters =>
+      prevFilters.map(filter => {
+        if (filter.id === filterId) {
+          const newValues = isChecked
+            ? [...filter.selectedValues, value]
+            : filter.selectedValues.filter(v => v !== value);
+
+          return { ...filter, selectedValues: newValues };
+        }
+        return filter;
+      })
+    );
+
+    // Usar debounce para las recargas de filtros dependientes
+    const currentFilterIndex = filters.findIndex(f => f.id === filterId);
+    const dependentFilterIds = filters
+      .slice(currentFilterIndex + 1)
+      .filter(f => f.key && !['_time', '_value'].includes(f.key))
+      .map(f => f.id);
+
+    // Añadir filtros dependientes a la cola de recarga
+    setReloadQueue(prev => {
+      const newQueue = new Set([...prev, ...dependentFilterIds]);
+      return newQueue;
+    });
+  }, [filters]);
+
+  useEffect(() => {
+    if (reloadQueue.size === 0) return;
+
+    const timeoutId = setTimeout(() => {
+      // Procesar todos los filtros en la cola
+      const filtersToReload = Array.from(reloadQueue);
+
+      filtersToReload.forEach((filterId, index) => {
+        setTimeout(() => {
+          reloadFilterValues(filterId);
+        }, index * 100); // Pequeño delay entre filtros para evitar sobrecarga
+      });
+
+      // Limpiar la cola
+      setReloadQueue(new Set());
+    }, 150); // Debounce de 150ms
+
+    return () => clearTimeout(timeoutId);
+  }, [reloadQueue, reloadFilterValues]);
 
   const updateFilterTime = useCallback((filterId, type, value) => {
     setFilters(prevFilters =>
@@ -1034,7 +1280,7 @@ const ExportacionVariablesPage = () => {
                               </div>
                             ) : filter.availableValues.length === 0 ? (
                               <div className="text-center py-2 text-secondary text-sm">
-                                No se encontarron valores
+                                No se encontraron valores
                               </div>
                             ) : (
                               filter.availableValues.map(value => (
@@ -1042,12 +1288,7 @@ const ExportacionVariablesPage = () => {
                                   <input
                                     type="checkbox"
                                     checked={filter.selectedValues.includes(value)}
-                                    onChange={(e) => {
-                                      const newValues = e.target.checked
-                                        ? [...filter.selectedValues, value]
-                                        : filter.selectedValues.filter(v => v !== value);
-                                      updateFilterValues(filter.id, newValues);
-                                    }}
+                                    onChange={(e) => handleFilterValueChange(filter.id, value, e.target.checked)}
                                     className="rounded"
                                   />
                                   <span className="truncate text-primary">{value}</span>
