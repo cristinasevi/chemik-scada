@@ -365,11 +365,12 @@ const ExportacionVariablesPage = () => {
         }
 
         const distinctQuery = `${baseQuery}
-        |> keep(columns: ["${filter.key}"])
-        |> distinct(column: "${filter.key}")
-        |> limit(n: 500)
-        |> sort(columns: ["${filter.key}"])
-        |> yield(name: "distinct_values")`;
+          |> sample(n: 10000)
+          |> keep(columns: ["${filter.key}"])
+          |> distinct(column: "${filter.key}")
+          |> limit(n: 200)
+          |> sort(columns: ["${filter.key}"])
+          |> yield(name: "distinct_values")`;
 
         const response = await fetch('/api/influxdb/query', {
           method: 'POST',
@@ -843,12 +844,10 @@ const ExportacionVariablesPage = () => {
     const startTime = timeRange.start || '-1h';
     const stopTime = timeRange.stop || 'now()';
 
-    // Si stop es 'now', usar 'now()' en lugar de 'now'
     const formattedStop = stopTime === 'now' ? 'now()' : stopTime;
 
     query += `  |> range(start: ${startTime}, stop: ${formattedStop})\n`;
 
-    // AGREGAR FILTRO POR TYPE ANTES DE OTROS FILTROS
     // Solo incluir variables de type "holding_register"
     query += `  |> filter(fn: (r) => r.type == "holding_register")\n`;
 
@@ -860,7 +859,6 @@ const ExportacionVariablesPage = () => {
 
       if (key === '_time') {
         if (filter.timeStart || filter.timeEnd) {
-          // CORRECCIÓN: Formatear fechas ISO correctamente para Flux
           const start = filter.timeStart ? `time(v: "${new Date(filter.timeStart).toISOString()}")` : startTime;
           const stop = filter.timeEnd ? `time(v: "${new Date(filter.timeEnd).toISOString()}")` : formattedStop;
 
@@ -882,10 +880,9 @@ const ExportacionVariablesPage = () => {
             query += `  |> filter(fn: (r) => ${conditions.join(' and ')})\n`;
           }
         }
-      } else { // equals operator for all other fields
+      } else {
         if (filter.selectedValues.length > 0) {
           if (filter.selectedValues.length === 1) {
-            // CORRECCIÓN: Usar notación de corchetes para campos que pueden contener caracteres especiales
             const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
               ? `r.${key}`
               : `r["${key}"]`;
@@ -901,7 +898,6 @@ const ExportacionVariablesPage = () => {
       }
     });
 
-    // Add aggregation if specified
     if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
       query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
@@ -1017,15 +1013,16 @@ const ExportacionVariablesPage = () => {
     }
 
     if (format === 'csv') {
-      // Filtrar solo las columnas _field, _time, _value
+      // Estructura optimizada: tiempo + INV1_Pca + INV1_PF + INV2_Pca + INV2_PF + etc.
       const lines = queryResult.data.split('\n').filter(line => line.trim());
       if (lines.length > 1) {
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
 
-        // Encontrar índices de las columnas que queremos
+        // Encontrar índices de las columnas necesarias
         const fieldIndex = headers.indexOf('_field');
         const timeIndex = headers.indexOf('_time');
         const valueIndex = headers.indexOf('_value');
+        const idIndex = headers.indexOf('PVO_id');
 
         // Verificar que existan las columnas
         if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
@@ -1033,17 +1030,69 @@ const ExportacionVariablesPage = () => {
           return;
         }
 
-        // Crear nuevo CSV con solo las 3 columnas
-        let filteredCsv = '_field,_time,_value\n';
+        // Recopilar datos organizados
+        const dataPoints = [];
+        const uniqueIds = new Set();
+        const uniqueFields = new Set();
 
         lines.slice(1).forEach(line => {
           const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
-          if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex)) {
-            filteredCsv += `"${cells[fieldIndex]}","${cells[timeIndex]}","${cells[valueIndex]}"\n`;
+          if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex, idIndex !== -1 ? idIndex : 0)) {
+            const id = idIndex !== -1 ? cells[idIndex] : 'N/A';
+            const field = cells[fieldIndex] || '';
+            const time = cells[timeIndex] || '';
+            const value = cells[valueIndex] || '';
+
+            dataPoints.push({ id, field, time, value });
+            uniqueIds.add(id);
+            uniqueFields.add(field);
           }
         });
 
-        const blob = new Blob([filteredCsv], { type: 'text/csv' });
+        // Convertir a arrays ordenados
+        const sortedIds = Array.from(uniqueIds).sort();
+        const sortedFields = Array.from(uniqueFields).sort();
+
+        // Crear cabeceras dinámicas: tiempo + combinaciones ID_Variable
+        const csvHeaders = ['tiempo'];
+        sortedIds.forEach(id => {
+          sortedFields.forEach(field => {
+            csvHeaders.push(`${id}_${field}`);
+          });
+        });
+
+        // Agrupar datos por tiempo
+        const timeGroups = new Map();
+        dataPoints.forEach(({ id, field, time, value }) => {
+          if (!timeGroups.has(time)) {
+            timeGroups.set(time, new Map());
+          }
+          const timeGroup = timeGroups.get(time);
+          const key = `${id}_${field}`;
+          timeGroup.set(key, value);
+        });
+
+        // Construir CSV
+        let csvContent = csvHeaders.map(h => `"${h}"`).join(',') + '\n';
+
+        // Ordenar tiempos y crear filas
+        const sortedTimes = Array.from(timeGroups.keys()).sort();
+        sortedTimes.forEach(time => {
+          const row = [time]; // Empezar con el tiempo
+
+          sortedIds.forEach(id => {
+            sortedFields.forEach(field => {
+              const key = `${id}_${field}`;
+              const timeGroup = timeGroups.get(time);
+              const value = timeGroup.has(key) ? timeGroup.get(key) : '';
+              row.push(value);
+            });
+          });
+
+          csvContent += row.map(value => `"${value}"`).join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
