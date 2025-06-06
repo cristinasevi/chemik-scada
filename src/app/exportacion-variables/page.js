@@ -21,6 +21,7 @@ const ExportacionVariablesPage = () => {
   }]);
   const [aggregationFunctions, setAggregationFunctions] = useState([]);
   const [reloadQueue, setReloadQueue] = useState(new Set());
+  const [hasChanges, setHasChanges] = useState(false);
 
   // Cache para evitar llamadas repetidas
   const [bucketCache, setBucketCache] = useState(new Map());
@@ -72,6 +73,10 @@ const ExportacionVariablesPage = () => {
   useEffect(() => {
     if (!useCustomQuery) {
       buildFluxQuery();
+      // Marcar que hay cambios pendientes si ya había un resultado previo
+      if (queryResult) {
+        setHasChanges(true);
+      }
     }
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction, useCustomQuery]);
 
@@ -923,7 +928,6 @@ const ExportacionVariablesPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: queryToExecute,
-          // Añadir timestamp para evitar cache
           timestamp: Date.now()
         })
       });
@@ -937,9 +941,10 @@ const ExportacionVariablesPage = () => {
           executionTime: data.executionTime || '0ms',
           data: data.data,
           success: true,
-          // Añadir timestamp para identificar consultas únicas
           queryId: Date.now()
         });
+        // Resetear el estado de cambios cuando la consulta es exitosa
+        setHasChanges(false);
       } else {
         setQueryResult({
           query: queryToExecute,
@@ -950,6 +955,8 @@ const ExportacionVariablesPage = () => {
           success: false,
           queryId: Date.now()
         });
+        // También resetear cambios en caso de error
+        setHasChanges(false);
       }
     } catch (error) {
       console.error('Error executing query:', error);
@@ -962,9 +969,11 @@ const ExportacionVariablesPage = () => {
         success: false,
         queryId: Date.now()
       });
+      setHasChanges(false);
     }
     setLoadingStates(prev => ({ ...prev, executing: false }));
   };
+
 
   const exportData = (format) => {
     const now = new Date();
@@ -1693,16 +1702,22 @@ const ExportacionVariablesPage = () => {
             <div className="flex gap-3">
               <button
                 onClick={() => exportData('csv')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                disabled={!queryResult?.success}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all ${!queryResult?.success || hasChanges
+                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
+                    : 'bg-green-500 text-white hover:bg-green-600 cursor-pointer'
+                  }`}
+                disabled={!queryResult?.success || hasChanges}
               >
                 <Download size={16} />
                 CSV
               </button>
               <button
                 onClick={() => exportData('json')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                disabled={!queryResult?.success}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all ${!queryResult?.success || hasChanges
+                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
+                    : 'bg-gray-500 text-white hover:bg-gray-600 cursor-pointer'
+                  }`}
+                disabled={!queryResult?.success || hasChanges}
               >
                 <Download size={16} />
                 JSON
