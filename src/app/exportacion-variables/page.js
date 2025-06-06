@@ -320,7 +320,8 @@ const ExportacionVariablesPage = () => {
         if (filter.key === '_measurement') {
           availableValues = measurements;
         } else if (filter.key === '_field') {
-          availableValues = fields;
+          // APLICAR FILTRO POR TYPE AQUÍ TAMBIÉN
+          availableValues = await getFilteredFieldsByType();
         } else {
           const response = await fetch('/api/influxdb/universal-values', {
             method: 'POST',
@@ -341,7 +342,7 @@ const ExportacionVariablesPage = () => {
       } else {
         // Construir query optimizada
         let baseQuery = `from(bucket: "${selectedBucket}")
-  |> range(start: -24h)`;
+        |> range(start: -24h)`;
 
         previousFilters.forEach(prevFilter => {
           if (prevFilter.selectedValues.length === 1) {
@@ -358,12 +359,17 @@ const ExportacionVariablesPage = () => {
           }
         });
 
+        // Si el filtro actual es '_field', agregar filtro por type
+        if (filter.key === '_field') {
+          baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
+        }
+
         const distinctQuery = `${baseQuery}
-  |> keep(columns: ["${filter.key}"])
-  |> distinct(column: "${filter.key}")
-  |> limit(n: 500)
-  |> sort(columns: ["${filter.key}"])
-  |> yield(name: "distinct_values")`;
+        |> keep(columns: ["${filter.key}"])
+        |> distinct(column: "${filter.key}")
+        |> limit(n: 500)
+        |> sort(columns: ["${filter.key}"])
+        |> yield(name: "distinct_values")`;
 
         const response = await fetch('/api/influxdb/query', {
           method: 'POST',
@@ -395,24 +401,28 @@ const ExportacionVariablesPage = () => {
           }
         } else {
           // Fallback optimizado
-          const fallbackResponse = await fetch('/api/influxdb/universal-values', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              bucket: selectedBucket,
-              fieldName: filter.key,
-              timeRange: '-24h',
-              maxValues: 500,
-              appliedFilters: previousFilters.map(pf => ({
-                key: pf.key,
-                values: pf.selectedValues
-              }))
-            })
-          });
+          if (filter.key === '_field') {
+            availableValues = await getFilteredFieldsByType(previousFilters);
+          } else {
+            const fallbackResponse = await fetch('/api/influxdb/universal-values', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucket: selectedBucket,
+                fieldName: filter.key,
+                timeRange: '-24h',
+                maxValues: 500,
+                appliedFilters: previousFilters.map(pf => ({
+                  key: pf.key,
+                  values: pf.selectedValues
+                }))
+              })
+            });
 
-          const fallbackData = await fallbackResponse.json();
-          if (fallbackData.success) {
-            availableValues = fallbackData.values || [];
+            const fallbackData = await fallbackResponse.json();
+            if (fallbackData.success) {
+              availableValues = fallbackData.values || [];
+            }
           }
         }
       }
@@ -499,7 +509,8 @@ const ExportacionVariablesPage = () => {
           if (key === '_measurement') {
             availableValues = measurements;
           } else if (key === '_field') {
-            availableValues = fields;
+            // AQUÍ ES DONDE FILTRAMOS POR TYPE
+            availableValues = await getFilteredFieldsByType();
           } else {
             // Para otros campos sin filtros previos, usar la API universal
             const response = await fetch('/api/influxdb/universal-values', {
@@ -519,9 +530,9 @@ const ExportacionVariablesPage = () => {
             }
           }
         } else {
-
+          // Si hay filtros anteriores, construir query optimizada
           let baseQuery = `from(bucket: "${selectedBucket}")
-            |> range(start: -24h)`;
+          |> range(start: -24h)`;
 
           // Aplicar SOLO los filtros anteriores
           previousFilters.forEach(prevFilter => {
@@ -539,17 +550,23 @@ const ExportacionVariablesPage = () => {
             }
           });
 
+          // Si el filtro actual es '_field', necesitamos filtrar por type también
+          if (key === '_field') {
+            // Agregar filtro para excluir type "calculado" y mostrar solo "holding_register"
+            baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
+          }
+
           // Obtener valores únicos del campo actual
           const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
             ? `r.${key}`
             : `r["${key}"]`;
 
           const distinctQuery = `${baseQuery}
-            |> keep(columns: ["${key}"])
-            |> distinct(column: "${key}")
-            |> limit(n: 500)
-            |> sort(columns: ["${key}"])
-            |> yield(name: "distinct_values")`;
+          |> keep(columns: ["${key}"])
+          |> distinct(column: "${key}")
+          |> limit(n: 500)
+          |> sort(columns: ["${key}"])
+          |> yield(name: "distinct_values")`;
 
           // Ejecutar la query a través de tu API
           const response = await fetch('/api/influxdb/query', {
@@ -586,24 +603,29 @@ const ExportacionVariablesPage = () => {
             console.error('Query failed or returned no data. Response:', data);
 
             // Fallback: usar API universal con filtros aplicados
-            const fallbackResponse = await fetch('/api/influxdb/universal-values', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                bucket: selectedBucket,
-                fieldName: key,
-                timeRange: '-24h',
-                maxValues: 500,
-                appliedFilters: previousFilters.map(pf => ({
-                  key: pf.key,
-                  values: pf.selectedValues
-                }))
-              })
-            });
+            if (key === '_field') {
+              // Para _field, usar función especial que filtra por type
+              availableValues = await getFilteredFieldsByType(previousFilters);
+            } else {
+              const fallbackResponse = await fetch('/api/influxdb/universal-values', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  bucket: selectedBucket,
+                  fieldName: key,
+                  timeRange: '-24h',
+                  maxValues: 500,
+                  appliedFilters: previousFilters.map(pf => ({
+                    key: pf.key,
+                    values: pf.selectedValues
+                  }))
+                })
+              });
 
-            const fallbackData = await fallbackResponse.json();
-            if (fallbackData.success) {
-              availableValues = fallbackData.values || [];
+              const fallbackData = await fallbackResponse.json();
+              if (fallbackData.success) {
+                availableValues = fallbackData.values || [];
+              }
             }
           }
         }
@@ -629,6 +651,95 @@ const ExportacionVariablesPage = () => {
       }
     }
   }, [selectedBucket, measurements, fields, filters]);
+
+  const getFilteredFieldsByType = async (appliedFilters = []) => {
+    try {
+      // Construir query base
+      let baseQuery = `from(bucket: "${selectedBucket}")
+      |> range(start: -24h)`;
+
+      // Aplicar filtros previos si existen
+      appliedFilters.forEach(filter => {
+        if (filter.selectedValues.length === 1) {
+          const fieldRef = filter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(filter.key)
+            ? `r.${filter.key}`
+            : `r["${filter.key}"]`;
+          baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${filter.selectedValues[0]}")`;
+        } else if (filter.selectedValues.length > 1) {
+          const values = filter.selectedValues.map(v => `"${v}"`).join(', ');
+          const fieldRef = filter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(filter.key)
+            ? `r.${filter.key}`
+            : `r["${filter.key}"]`;
+          baseQuery += `\n  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))`;
+        }
+      });
+
+      // Agregar filtro para type = "holding_register"
+      baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
+
+      // Obtener valores únicos de _field
+      const distinctQuery = `${baseQuery}
+      |> keep(columns: ["_field"])
+      |> distinct(column: "_field")
+      |> limit(n: 500)
+      |> sort(columns: ["_field"])
+      |> yield(name: "distinct_values")`;
+
+      const response = await fetch('/api/influxdb/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: distinctQuery,
+          format: 'csv'
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.data && typeof data.rows === 'number') {
+        const lines = data.data.split('\n').filter(line => line.trim());
+
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+          const fieldIndex = headers.indexOf('_field');
+
+          if (fieldIndex !== -1) {
+            const uniqueValues = new Set();
+            lines.slice(1).forEach(line => {
+              const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
+              if (cells[fieldIndex] && cells[fieldIndex] !== '') {
+                uniqueValues.add(cells[fieldIndex]);
+              }
+            });
+            return Array.from(uniqueValues).sort();
+          }
+        }
+      }
+
+      // Si la query falla, fallback a una llamada API específica
+      const fallbackResponse = await fetch('/api/influxdb/filtered-fields', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket: selectedBucket,
+          typeFilter: 'holding_register',
+          appliedFilters: appliedFilters,
+          timeRange: '-24h',
+          maxValues: 500
+        })
+      });
+
+      const fallbackData = await fallbackResponse.json();
+      if (fallbackData.success) {
+        return fallbackData.fields || [];
+      }
+
+      return [];
+    } catch (error) {
+      console.error('Error getting filtered fields by type:', error);
+      return [];
+    }
+  };
 
   const updateFilterValues = useCallback((filterId, values) => {
     setFilters(prevFilters =>
@@ -736,6 +847,10 @@ const ExportacionVariablesPage = () => {
     const formattedStop = stopTime === 'now' ? 'now()' : stopTime;
 
     query += `  |> range(start: ${startTime}, stop: ${formattedStop})\n`;
+
+    // AGREGAR FILTRO POR TYPE ANTES DE OTROS FILTROS
+    // Solo incluir variables de type "holding_register"
+    query += `  |> filter(fn: (r) => r.type == "holding_register")\n`;
 
     // Add filters
     filters.forEach(filter => {
@@ -1549,60 +1664,101 @@ const ExportacionVariablesPage = () => {
       </div>
 
       {/* Full Results View */}
-      {
-        queryResult?.success && queryResult.data && (
-          <div className="bg-panel rounded-lg p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-primary">Query Results</h3>
-              <div className="flex items-center gap-4 text-sm text-secondary">
-                <span>{queryResult.rows} rows</span>
-                <span>{queryResult.executionTime}</span>
-                <span>{selectedBucket}</span>
-              </div>
-            </div>
-
-            {/* Results Table */}
-            <div className="border border-custom rounded-lg overflow-hidden">
-              <div className="max-h-96 overflow-auto">
-                <table className="w-full">
-                  <thead className="bg-header-table border-b border-custom sticky top-0">
-                    <tr>
-                      {queryResult.data.split('\n')[0]?.split(',').map((header, index) => (
-                        <th key={index} className="text-left p-3 font-semibold text-primary text-sm border-r border-custom last:border-r-0">
-                          {header.replace(/"/g, '').trim()}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {queryResult.data.split('\n').slice(1, 101).map((row, rowIndex) => {
-                      if (!row.trim()) return null;
-                      return (
-                        <tr key={rowIndex} className="border-b border-custom hover-bg">
-                          {row.split(',').map((cell, cellIndex) => (
-                            <td key={cellIndex} className="p-3 text-sm text-primary border-r border-custom last:border-r-0">
-                              <div className="max-w-xs truncate" title={cell.replace(/"/g, '').trim()}>
-                                {cell.replace(/"/g, '').trim()}
-                              </div>
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {queryResult.data.split('\n').length > 101 && (
-                <div className="bg-header-table border-t border-custom p-3 text-center text-sm text-secondary">
-                  Showing first 100 rows of {queryResult.rows} total rows. Export to see all data.
-                </div>
-              )}
+      {queryResult?.success && queryResult.data && (
+        <div className="bg-panel rounded-lg p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-primary">Query Results</h3>
+            <div className="flex items-center gap-4 text-sm text-secondary">
+              <span>{queryResult.rows} rows</span>
+              <span>{queryResult.executionTime}</span>
+              <span>{selectedBucket}</span>
             </div>
           </div>
-        )
-      }
-    </div >
+
+          {/* Results Table */}
+          <div className="border border-custom rounded-lg overflow-hidden">
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full">
+                <thead className="bg-header-table border-b border-custom sticky top-0">
+                  <tr>
+                    <th className="text-left p-3 font-semibold text-primary text-sm border-r border-custom">
+                      _field
+                    </th>
+                    <th className="text-left p-3 font-semibold text-primary text-sm border-r border-custom">
+                      _time
+                    </th>
+                    <th className="text-left p-3 font-semibold text-primary text-sm">
+                      _value
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const lines = queryResult.data.split('\n').filter(line => line.trim());
+                    if (lines.length <= 1) return null;
+
+                    // Obtener los headers y encontrar los índices de las columnas que queremos
+                    const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+                    const fieldIndex = headers.indexOf('_field');
+                    const timeIndex = headers.indexOf('_time');
+                    const valueIndex = headers.indexOf('_value');
+
+                    // Verificar que existan las columnas requeridas
+                    if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
+                      return (
+                        <tr>
+                          <td colSpan="3" className="p-3 text-center text-secondary text-sm">
+                            Las columnas requeridas (_field, _time, _value) no están disponibles en los datos.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // Procesar las filas de datos (máximo 100 para la vista)
+                    return lines.slice(1, 101).map((row, rowIndex) => {
+                      if (!row.trim()) return null;
+
+                      const cells = row.split(',').map(cell => cell.replace(/"/g, '').trim());
+
+                      // Verificar que la fila tenga suficientes columnas
+                      if (cells.length <= Math.max(fieldIndex, timeIndex, valueIndex)) {
+                        return null;
+                      }
+
+                      return (
+                        <tr key={rowIndex} className="border-b border-custom hover-bg">
+                          <td className="p-3 text-sm text-primary border-r border-custom">
+                            <div className="max-w-xs truncate" title={cells[fieldIndex] || ''}>
+                              {cells[fieldIndex] || ''}
+                            </div>
+                          </td>
+                          <td className="p-3 text-sm text-primary border-r border-custom">
+                            <div className="max-w-xs truncate" title={cells[timeIndex] || ''}>
+                              {cells[timeIndex] || ''}
+                            </div>
+                          </td>
+                          <td className="p-3 text-sm text-primary">
+                            <div className="max-w-xs truncate" title={cells[valueIndex] || ''}>
+                              {cells[valueIndex] || ''}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }).filter(row => row !== null);
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {queryResult.data.split('\n').length > 101 && (
+              <div className="bg-header-table border-t border-custom p-3 text-center text-sm text-secondary">
+                Showing first 100 rows of {queryResult.rows} total rows. Export to see all data.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
