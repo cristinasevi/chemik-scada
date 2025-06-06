@@ -576,20 +576,6 @@ const UsersPage = () => {
 
     return (
         <div className="p-6 space-y-6">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-semibold text-primary">Gestión de Usuarios</h1>
-                </div>
-                <button
-                    onClick={handleCreateUser}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors cursor-pointer"
-                >
-                    <Plus size={16} />
-                    Nuevo Usuario
-                </button>
-            </div>
-
             {/* Pop-up de éxito */}
             <SuccessPopup />
 
@@ -601,8 +587,9 @@ const UsersPage = () => {
                 />
             )}
 
-            {/* Filtros */}
-            <div className="flex flex-col sm:flex-row gap-4">
+            {/* Filtros y acciones */}
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+                {/* Barra de búsqueda */}
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-secondary" size={16} />
                     <input
@@ -614,6 +601,7 @@ const UsersPage = () => {
                     />
                 </div>
 
+                {/* Filtro de rol */}
                 <select
                     value={filterRole}
                     onChange={(e) => setFilterRole(e.target.value)}
@@ -623,6 +611,15 @@ const UsersPage = () => {
                     <option value="admin">Administrador</option>
                     <option value="cliente">Cliente</option>
                 </select>
+
+                {/* Botón crear usuario */}
+                <button
+                    onClick={handleCreateUser}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                    <Plus size={16} />
+                    Nuevo Usuario
+                </button>
             </div>
 
             {/* Tabla de usuarios */}

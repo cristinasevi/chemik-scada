@@ -242,7 +242,7 @@ const Map = () => {
         center: [40.136361, -2.372718],
         zoom: 6.3,
         zoomControl: true,
-        scrollWheelZoom: true,
+        scrollWheelZoom: false,
         doubleClickZoom: true,
         dragging: true,
         touchZoom: true,

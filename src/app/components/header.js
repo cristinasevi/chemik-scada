@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react';
 import { Moon, Sun, User, LogOut, Bell } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePathname } from 'next/navigation';
 import Navbar from './navbar';
 
 const Header = () => {
   const { user, logout } = useAuth();
+  const pathname = usePathname();
   const [isDark, setIsDark] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -34,6 +36,61 @@ const Header = () => {
     logout();
   };
 
+  // Función para obtener el título dinámico basado en la ruta
+  const getPageTitle = () => {
+    if (pathname.startsWith('/lamaja')) {
+      // Mapeo de rutas específicas de La Maja
+      const lamajaRoutes = {
+        '/lamaja': 'Dashboard',
+        '/lamaja/heat-maps': 'Heat Maps',
+        '/lamaja/pv-resumen': 'PV Resumen',
+        '/lamaja/resumen-inversores': 'Resumen Inversores',
+        '/lamaja/detalle-inversor': 'Detalle Inversor',
+        '/lamaja/subestacion-cts': 'Subestación y CTs'
+      };
+      
+      const sectionName = lamajaRoutes[pathname] || 'Dashboard';
+      return `La Maja - ${sectionName}`;
+      
+    } else if (pathname.startsWith('/retamar')) {
+      // Mapeo de rutas específicas de Retamar
+      const retamarRoutes = {
+        '/retamar': 'Dashboard',
+        '/retamar/heat-maps': 'Heat Maps',
+        '/retamar/pv-resumen': 'PV Resumen',
+        '/retamar/resumen-inversores': 'Resumen Inversores',
+        '/retamar/detalle-inversor': 'Detalle Inversor',
+        '/retamar/resumen-trackers': 'Resumen Trackers',
+        '/retamar/detalle-tracker': 'Detalle Tracker',
+        '/retamar/facturacion': 'Facturación'
+      };
+      
+      const sectionName = retamarRoutes[pathname] || 'Dashboard';
+      return `Retamar - ${sectionName}`;
+      
+    } else {
+      // Mapeo de otras rutas del sistema
+      const generalRoutes = {
+        '/': 'Dashboard Principal',
+        '/gestion-documentos': 'Gestión de Documentos',
+        '/exportacion-variables': 'Exportación de Variables',
+        '/usuarios': 'Gestión de Usuarios'
+      };
+      
+      return generalRoutes[pathname] || 'Dashboard Principal';
+    }
+  };
+
+  // Función para obtener el color del título (opcional)
+  const getTitleColor = () => {
+    if (pathname.startsWith('/lamaja')) {
+      return;
+    } else if (pathname.startsWith('/retamar')) {
+      return;
+    }
+    return;
+  };
+
   if (!isClient || !user) return null;
 
   return (
@@ -53,8 +110,8 @@ const Header = () => {
         </div>
 
         <div className="flex justify-center">
-          <h1 className="text-2xl font-semibold text-primary hidden sm:block">
-            Chemik Scada
+          <h1 className={`text-xl font-semibold ${getTitleColor()} hidden sm:block transition-colors duration-200`}>
+            {getPageTitle()}
           </h1>
         </div>
 
