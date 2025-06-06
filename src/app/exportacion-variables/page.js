@@ -347,7 +347,7 @@ const ExportacionVariablesPage = () => {
       } else {
         // Construir query optimizada
         let baseQuery = `from(bucket: "${selectedBucket}")
-        |> range(start: -24h)`;
+          |> range(start: -2h)`;
 
         previousFilters.forEach(prevFilter => {
           if (prevFilter.selectedValues.length === 1) {
@@ -370,10 +370,10 @@ const ExportacionVariablesPage = () => {
         }
 
         const distinctQuery = `${baseQuery}
-          |> sample(n: 10000)
+          |> sample(n: 2000)  // Menos registros de muestra
           |> keep(columns: ["${filter.key}"])
           |> distinct(column: "${filter.key}")
-          |> limit(n: 200)
+          |> limit(n: 100)    // Menos resultados
           |> sort(columns: ["${filter.key}"])
           |> yield(name: "distinct_values")`;
 
@@ -538,9 +538,8 @@ const ExportacionVariablesPage = () => {
         } else {
           // Si hay filtros anteriores, construir query optimizada
           let baseQuery = `from(bucket: "${selectedBucket}")
-          |> range(start: -24h)`;
+            |> range(start: -1h)`;
 
-          // Aplicar SOLO los filtros anteriores
           previousFilters.forEach(prevFilter => {
             if (prevFilter.selectedValues.length === 1) {
               const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
@@ -548,11 +547,11 @@ const ExportacionVariablesPage = () => {
                 : `r["${prevFilter.key}"]`;
               baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${prevFilter.selectedValues[0]}")`;
             } else if (prevFilter.selectedValues.length > 1) {
-              const values = prevFilter.selectedValues.map(v => `"${v}"`).join(', ');
+              // CAMBIO: Solo usar el primer valor seleccionado para acelerar
               const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
                 ? `r.${prevFilter.key}`
                 : `r["${prevFilter.key}"]`;
-              baseQuery += `\n  |> filter(fn: (r) => contains(value: ${fieldRef}, set: [${values}]))`;
+              baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${prevFilter.selectedValues[0]}")`;
             }
           });
 
@@ -560,6 +559,8 @@ const ExportacionVariablesPage = () => {
           if (key === '_field') {
             // Agregar filtro para excluir type "calculado" y mostrar solo "holding_register"
             baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
+            // OPTIMIZACIÓN: Muestrear muy pocos registros
+            baseQuery += `\n  |> sample(n: 1000)`;
           }
 
           // Obtener valores únicos del campo actual
