@@ -987,22 +987,19 @@ const ExportacionVariablesPage = () => {
 
     if (activeFilters.length > 0) {
       const filterNames = activeFilters.map(filter => {
-        // Mapeo de nombres técnicos a nombres amigables
-        const friendlyNames = {
-          'PVO_Plant': 'Planta',
-          'PVO_Zone': 'Zona',
-          'PVO_type': 'Tipo',
-          'PVO_id': 'ID',
-          '_field': 'Variable'
-        };
-
-        const filterName = friendlyNames[filter.key] || filter.key;
-
-        // Si solo hay un valor, usar ese valor
+        // Si solo hay un valor, usar solo ese valor (sin etiqueta)
         if (filter.selectedValues.length === 1) {
-          return `${filterName}_${filter.selectedValues[0]}`;
+          return filter.selectedValues[0];
         } else {
           // Si hay múltiples valores, usar el nombre del filtro y cantidad
+          const friendlyNames = {
+            'PVO_Plant': 'Planta',
+            'PVO_Zone': 'Zona',
+            'PVO_type': 'Tipo',
+            'PVO_id': 'ID',
+            '_field': 'Variable'
+          };
+          const filterName = friendlyNames[filter.key] || filter.key;
           return `${filterName}_${filter.selectedValues.length}valores`;
         }
       });
@@ -1047,13 +1044,25 @@ const ExportacionVariablesPage = () => {
         lines.slice(1).forEach(line => {
           const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
           if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex, idIndex !== -1 ? idIndex : 0)) {
-            const id = idIndex !== -1 ? cells[idIndex] : 'N/A';
+            // AÑADIR ESTAS LÍNEAS:
+            const plantIndex = headers.indexOf('PVO_Plant');
+            const zoneIndex = headers.indexOf('PVO_Zone');
+            const typeIndex = headers.indexOf('PVO_type');
+
+            const plant = plantIndex !== -1 ? cells[plantIndex] : '';
+            const zone = zoneIndex !== -1 ? cells[zoneIndex] : '';
+            const id = idIndex !== -1 ? cells[idIndex] : '';
+
+            // Crear el ID completo: Planta_Zona_ID
+            const fullId = [plant, zone, id].filter(part => part !== '').join('_') || 'N/A';
+
             const field = cells[fieldIndex] || '';
             const time = cells[timeIndex] || '';
-            const value = cells[valueIndex] || '';
+            // Convertir punto decimal a coma
+            const value = (cells[valueIndex] || '').replace('.', ',');
 
-            dataPoints.push({ id, field, time, value });
-            uniqueIds.add(id);
+            dataPoints.push({ id: fullId, field, time, value });
+            uniqueIds.add(fullId);
             uniqueFields.add(field);
           }
         });
@@ -1081,8 +1090,8 @@ const ExportacionVariablesPage = () => {
           timeGroup.set(key, value);
         });
 
-        // Construir CSV
-        let csvContent = csvHeaders.map(h => `"${h}"`).join(',') + '\n';
+        // Construir CSV - CAMBIOS AQUÍ: usar ; como separador y sin comillas
+        let csvContent = csvHeaders.join(';') + '\n';
 
         // Ordenar tiempos y crear filas
         const sortedTimes = Array.from(timeGroups.keys()).sort();
@@ -1098,7 +1107,7 @@ const ExportacionVariablesPage = () => {
             });
           });
 
-          csvContent += row.map(value => `"${value}"`).join(',') + '\n';
+          csvContent += row.join(';') + '\n';
         });
 
         const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -1696,8 +1705,8 @@ const ExportacionVariablesPage = () => {
               <button
                 onClick={() => exportData('csv')}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all ${!queryResult?.success || hasChanges
-                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
-                    : 'bg-green-500 text-white hover:bg-green-600 cursor-pointer'
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
+                  : 'bg-green-500 text-white hover:bg-green-600 cursor-pointer'
                   }`}
                 disabled={!queryResult?.success || hasChanges}
               >
@@ -1707,8 +1716,8 @@ const ExportacionVariablesPage = () => {
               <button
                 onClick={() => exportData('json')}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all ${!queryResult?.success || hasChanges
-                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
-                    : 'bg-gray-500 text-white hover:bg-gray-600 cursor-pointer'
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-50'
+                  : 'bg-gray-500 text-white hover:bg-gray-600 cursor-pointer'
                   }`}
                 disabled={!queryResult?.success || hasChanges}
               >
