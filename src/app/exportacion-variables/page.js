@@ -847,7 +847,7 @@ const ExportacionVariablesPage = () => {
 
     let query = `from(bucket: "${selectedBucket}")\n`;
 
-    const startTime = timeRange.start || '-1h';
+    const startTime = timeRange.start || '-30m';
     const stopTime = timeRange.stop || 'now()';
 
     const formattedStop = stopTime === 'now' ? 'now()' : stopTime;
@@ -904,11 +904,29 @@ const ExportacionVariablesPage = () => {
       }
     });
 
+    // Limitar registros para acelerar la query - ajustar según rango de tiempo
+    const isLongTimeRange = (() => {
+      if (!timeRange.start || timeRange.start === '-30m') return false;
+
+      if (timeRange.selectedDates.length === 2) {
+        const start = new Date(timeRange.selectedDates[0]);
+        const end = new Date(timeRange.selectedDates[1]);
+        const diffHours = (end - start) / (1000 * 60 * 60);
+        return diffHours > 6; // Más de 6 horas se considera rango largo
+      }
+      return false;
+    })();
+
+    const sampleSize = isLongTimeRange ? 5000 : 10000;
+    query += `  |> sample(n: ${sampleSize})\n`;
+
     if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
       query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
 
+    query += `  |> limit(n: 50000)\n`; 
     query += `  |> yield(name: "result")`;
+
     setRawQuery(query);
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction]);
 
