@@ -1,24 +1,14 @@
-'use client';
-
 import GrafanaEmbed from './GrafanaEmbed';
 
-const RetamarPage = () => {
+export default function RetamarPage() {
   return (
-    <>
-      {/* Dashboard principal de Retamar */}
-      <GrafanaEmbed
-        dashboardId="lamaja-overview"
-        title="Dashboard Principal Retamar"
-        height="600px"
-        showControls={true}
-        autoRefresh={true}
-        refresh="30s"
+    <div className="h-screen w-full">
+      <GrafanaEmbed 
+        height="100vh"
         from="now-24h"
         to="now"
-        hideHeader={true} 
+        className="w-full h-full"
       />
-    </>
+    </div>
   );
-};
-
-export default RetamarPage;
+}

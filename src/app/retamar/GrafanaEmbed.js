@@ -1,65 +1,64 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, ExternalLink, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
-const GrafanaEmbed = ({ 
+const GrafanaEmbed = ({
   dashboardId = null,
-  panelId = null, 
-  from = 'now-1h',
+  dashboardName = null,
+  panelId = null,
+  from = 'now-6h',
   to = 'now',
   refresh = '5s',
   theme = 'auto',
-  height = '400px',
-  showControls = true,
+  height = '100vh',
   autoRefresh = true,
   orgId = 1,
-  title = "Grafana Dashboard",
-  className = "",
-  hideHeader = false  // Oculta el header
+  className = ""
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentTheme, setCurrentTheme] = useState(theme);
+  const [currentTheme, setCurrentTheme] = useState('light');
+  const [themeDetected, setThemeDetected] = useState(false);
   const iframeRef = useRef(null);
 
-  // Obtener URL base de Grafana desde variables de entorno o usar localhost
-  const grafanaUrl = 'http://192.168.3.100:3001/d/3f7b9f97-3329-4557-b6e6-95157d251b8b/new-dashboard?orgId=1&from=now-6h&to=now&timezone=browser';
+  // Configuración de Grafana
+  const grafanaUrl = process.env.NEXT_PUBLIC_GRAFANA_URL || 'http://192.168.3.100:3003';
+  const defaultDashboardId = process.env.NEXT_PUBLIC_GRAFANA_DASHBOARD_ID || '405f439b-2f99-48f9-b4fc-9e35ceec411d';
 
-  // Detectar tema del sistema si es 'auto'
-  useEffect(() => {
+  // Función para detectar el tema actual
+  const detectCurrentTheme = useCallback(() => {
     if (theme === 'auto') {
       const isDark = document.documentElement.classList.contains('dark');
-      setCurrentTheme(isDark ? 'dark' : 'light');
-    } else {
-      setCurrentTheme(theme);
+      return isDark ? 'dark' : 'light';
     }
+    return theme;
   }, [theme]);
 
-  // Construir URL de Grafana
-  const buildGrafanaUrl = () => {
-    let baseUrl = grafanaUrl;
-    
-    if (panelId && dashboardId) {
-      // Panel específico embebido
-      baseUrl += `/d-solo/${dashboardId}`;
-    } else if (dashboardId) {
-      // Dashboard completo embebido
-      baseUrl += `/d/${dashboardId}`;
+  // Función para construir URL de Grafana
+  const buildGrafanaUrl = useCallback((themeToUse = null) => {
+    const dashId = dashboardId || defaultDashboardId;
+    const dashName = dashboardName || 'new-dashboard';
+
+    let baseUrl;
+    if (panelId) {
+      baseUrl = `${grafanaUrl}/d-solo/${dashId}/${dashName}`;
     } else {
-      // Dashboard por defecto
-      baseUrl += `/d/default-dashboard`;
+      baseUrl = `${grafanaUrl}/d/${dashId}/${dashName}`;
     }
 
     const params = new URLSearchParams({
       orgId: orgId.toString(),
       from: from,
       to: to,
-      theme: currentTheme,
-      // Oculta el header
       kiosk: '1',
+      timezone: 'browser'
     });
+
+    // Forzar tema específico para evitar problemas
+    const finalTheme = themeToUse || currentTheme;
+    if (finalTheme && finalTheme !== 'auto') {
+      params.append('theme', finalTheme);
+    }
 
     if (panelId) {
       params.append('panelId', panelId.toString());
@@ -70,7 +69,42 @@ const GrafanaEmbed = ({
     }
 
     return `${baseUrl}?${params.toString()}`;
-  };
+  }, [dashboardId, defaultDashboardId, dashboardName, panelId, from, to, currentTheme, orgId, refresh, autoRefresh, grafanaUrl]);
+
+  // Actualizar tema automáticamente
+  const updateIframeTheme = useCallback((newTheme) => {
+    if (iframeRef.current) {
+      setIsLoading(true);
+      iframeRef.current.src = buildGrafanaUrl(newTheme);
+    }
+  }, [buildGrafanaUrl]);
+
+  // Detectar cambios de tema inicial - SOLO UNA VEZ
+  useEffect(() => {
+    const detectedTheme = detectCurrentTheme();
+    setCurrentTheme(detectedTheme);
+    setThemeDetected(true);
+  }, []); // Sin dependencias para que solo ejecute una vez
+
+  // Observar cambios en el tema del documento
+  useEffect(() => {
+    if (theme !== 'auto' || !themeDetected) return;
+
+    const observer = new MutationObserver(() => {
+      const newTheme = detectCurrentTheme();
+      if (newTheme !== currentTheme) {
+        setCurrentTheme(newTheme);
+        updateIframeTheme(newTheme);
+      }
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return () => observer.disconnect();
+  }, [theme, themeDetected, currentTheme, detectCurrentTheme, updateIframeTheme]);
 
   const handleIframeLoad = () => {
     setIsLoading(false);
@@ -79,103 +113,44 @@ const GrafanaEmbed = ({
 
   const handleIframeError = () => {
     setIsLoading(false);
-    setError('Error cargando el dashboard de Grafana');
+    setError('Error cargando el dashboard');
   };
 
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
+  // Timeout para evitar carga infinita
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (isLoading) {
+        setIsLoading(false);
+        setError('El dashboard está tardando mucho en cargar');
+      }
+    }, 30000);
 
-  const openInNewTab = () => {
-    // Para nueva pestaña, usar URL completa sin -solo
-    const newTabUrl = buildGrafanaUrl().replace('/d-solo/', '/d/');
-    window.open(newTabUrl, '_blank');
-  };
-
-  const refreshIframe = () => {
-    if (iframeRef.current) {
-      setIsLoading(true);
-      iframeRef.current.src = buildGrafanaUrl();
-    }
-  };
+    return () => clearTimeout(timeout);
+  }, [isLoading]);
 
   if (error) {
     return (
-      <div className={`w-full ${hideHeader ? '' : 'bg-panel'} ${className}`}>
-        {!hideHeader && (
-          <div className="bg-header-table border-b border-custom p-4 flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-primary">{title}</h3>
-            <button
-              onClick={refreshIframe}
-              className="p-2 text-secondary hover:text-primary hover:bg-hover-bg rounded transition-colors cursor-pointer"
-              title="Reintentar"
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-        )}
-        <div className={`flex items-center justify-center p-6 text-red-500 ${hideHeader ? 'bg-panel' : ''}`} style={{ height }}>
-          <div className="text-center">
-            <AlertTriangle size={48} className="mx-auto mb-4" />
-            <p className="mb-2">{error}</p>
-            <button
-              onClick={refreshIframe}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
-            >
-              Reintentar
-            </button>
-          </div>
+      <div className={`w-full h-full flex items-center justify-center header-bg ${className}`} style={{ height }}>
+        <div className="text-center text-red-500">
+          <p className="text-lg font-semibold">Error</p>
+          <p className="text-sm">{error}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-background' : 'w-full'} ${hideHeader ? '' : 'bg-panel'} overflow-hidden ${className}`}>
-      {/* Header con controles - solo si no está oculto */}
-      {!hideHeader && (
-        <div className="bg-header-table border-b border-custom p-4 flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-primary">{title}</h3>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={refreshIframe}
-              className="p-2 text-secondary hover:text-primary hover:bg-hover-bg rounded transition-colors cursor-pointer"
-              title="Actualizar"
-            >
-              <RefreshCw size={16} />
-            </button>
-            
-            <button
-              onClick={openInNewTab}
-              className="p-2 text-secondary hover:text-primary hover:bg-hover-bg rounded transition-colors cursor-pointer"
-              title="Abrir en nueva pestaña"
-            >
-              <ExternalLink size={16} />
-            </button>
-            
-            <button
-              onClick={toggleFullscreen}
-              className="p-2 text-secondary hover:text-primary hover:bg-hover-bg rounded transition-colors cursor-pointer"
-              title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-            >
-              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
+    <div className={`w-full relative ${className}`} style={{ height }}>
+      {(isLoading || !themeDetected) && (
+        <div className="absolute inset-0 flex items-center justify-center header-bg z-10">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Cargando dashboard...</p>
           </div>
         </div>
       )}
 
-      {/* Iframe container */}
-      <div className="relative" style={{ height: isFullscreen ? 'calc(100vh - 73px)' : height }}>
-        {isLoading && (
-          <div className={`absolute inset-0 flex items-center justify-center ${hideHeader ? 'bg-panel' : 'bg-header-table'}`}>
-            <div className="text-center">
-              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-              <p className="text-sm text-secondary">Cargando dashboard de Grafana...</p>
-            </div>
-          </div>
-        )}
-
+      {themeDetected && (
         <iframe
           ref={iframeRef}
           src={buildGrafanaUrl()}
@@ -185,10 +160,11 @@ const GrafanaEmbed = ({
           onLoad={handleIframeLoad}
           onError={handleIframeError}
           className="w-full h-full"
-          title={title}
+          title="Grafana Dashboard"
           allow="fullscreen"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
         />
-      </div>
+      )}
     </div>
   );
 };

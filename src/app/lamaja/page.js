@@ -1,24 +1,13 @@
-'use client';
-
 import GrafanaEmbed from './GrafanaEmbed';
 
-const LamajaPage = () => {
+export default function LamajaPage() {
   return (
-    <>
-      {/* Dashboard principal de La Maja */}
-      <GrafanaEmbed
-        dashboardId="lamaja-overview"
-        title="Dashboard Principal La Maja"
-        height="600px"
-        showControls={true}
-        autoRefresh={true}
-        refresh="30s"
+      <GrafanaEmbed 
+        height="100vh"
         from="now-24h"
         to="now"
-        hideHeader={true} 
+        className="w-full h-full"
       />
-    </>
+    </div>
   );
-};
-
-export default LamajaPage;
+}
