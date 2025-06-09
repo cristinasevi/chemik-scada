@@ -5,20 +5,15 @@ export async function GET(request) {
     const grafanaToken = process.env.GRAFANA_TOKEN;
     
     if (!grafanaToken) {     
-      // Usar alarmas de ejemplo si no hay token
-      const fallbackAlarms = createFallbackAlarms();
-      const plantAlarms = groupAlarmsByPlant(fallbackAlarms);
-      const summary = calculateAlarmSummary(fallbackAlarms);
-      
       return Response.json({
         success: false,
-        error: 'Token de Grafana no configurado - usando datos de ejemplo',
-        totalAlarms: fallbackAlarms.length,
-        alarms: fallbackAlarms,
-        plantAlarms,
-        summary,
+        error: 'Token de Grafana no configurado',
+        totalAlarms: 0,
+        alarms: [],
+        plantAlarms: { LAMAJA: [], RETAMAR: [] },
+        summary: { critical: 0, warning: 0, info: 0, total: 0 },
         timestamp: new Date().toISOString(),
-        source: 'fallback'
+        source: 'no_token'
       });
     }
 
@@ -35,7 +30,6 @@ export async function GET(request) {
     });
 
     if (!alertsResponse.ok) {
-      // Fallback con datos de ejemplo
       return generateFallbackResponse('Error de conexión con Grafana');
     }
 
@@ -54,20 +48,14 @@ export async function GET(request) {
       }
     }
 
-    // Si no hay alertas reales, usar datos de demostración
-    let finalAlarms = mappedAlarms;
-    if (mappedAlarms.length === 0) {
-      finalAlarms = generateDemoAlarms();
-    }
-
     // Agrupar por planta y calcular estadísticas
-    const plantAlarms = groupAlarmsByPlant(finalAlarms);
-    const summary = calculateAlarmSummary(finalAlarms);
+    const plantAlarms = groupAlarmsByPlant(mappedAlarms);
+    const summary = calculateAlarmSummary(mappedAlarms);
 
     return Response.json({
       success: true,
-      totalAlarms: finalAlarms.length,
-      alarms: finalAlarms,
+      totalAlarms: mappedAlarms.length,
+      alarms: mappedAlarms,
       plantAlarms,
       summary,
       timestamp: new Date().toISOString(),
@@ -82,151 +70,16 @@ export async function GET(request) {
 
 // Función para generar respuesta de fallback
 function generateFallbackResponse(errorMessage) {
-  const fallbackAlarms = [
-    {
-      id: 'FALLBACK_CONNECTION_ERROR',
-      plant: 'LAMAJA',
-      severity: 'warning',
-      type: 'communication',
-      message: `Error de conexión con Grafana: ${errorMessage}`,
-      timestamp: new Date().toISOString(),
-      value: null,
-      threshold: null,
-      grafanaData: {
-        ruleId: 'connection_fallback',
-        fingerprint: 'fallback_001'
-      }
-    }
-  ];
-
-  const plantAlarms = groupAlarmsByPlant(fallbackAlarms);
-  const summary = calculateAlarmSummary(fallbackAlarms);
-
   return Response.json({
     success: false,
     error: errorMessage,
-    totalAlarms: fallbackAlarms.length,
-    alarms: fallbackAlarms,
-    plantAlarms,
-    summary,
+    totalAlarms: 0,
+    alarms: [],
+    plantAlarms: { LAMAJA: [], RETAMAR: [] },
+    summary: { critical: 0, warning: 0, info: 0, total: 0 },
     timestamp: new Date().toISOString(),
-    source: 'fallback'
+    source: 'error'
   }, { status: 500 });
-}
-
-// Función para generar alarmas de demostración
-function generateDemoAlarms() {
-  const now = new Date().toISOString();
-  
-  return [
-    {
-      id: 'DEMO_LAMAJA_SUBSTATION_01',
-      plant: 'LAMAJA',
-      severity: 'warning',
-      type: 'substation',
-      message: 'La Maja: Fallo subestación 01',
-      description: 'Alguna alarma en la subestación.',
-      timestamp: now,
-      device: 'SUBESTACION_01',
-      value: 1,
-      threshold: 0,
-      grafanaData: {
-        ruleId: 'LAMAJA_SUBSTATION_01',
-        fingerprint: 'demo_lamaja_sub_001',
-        priority: 'Alta'
-      }
-    },
-    {
-      id: 'DEMO_RETAMAR_INV_03',
-      plant: 'RETAMAR',
-      severity: 'critical',
-      type: 'inverter',
-      message: 'Retamar Inv. 03: Alarma',
-      description: 'Inversor 03 no disponible para producción.',
-      timestamp: now,
-      device: 'INV03',
-      value: 1,
-      threshold: 0,
-      grafanaData: {
-        ruleId: 'RETAMAR_INV_03',
-        fingerprint: 'demo_retamar_inv_003',
-        priority: 'Media'
-      }
-    },
-    {
-      id: 'DEMO_RETAMAR_TRK_15',
-      plant: 'RETAMAR',
-      severity: 'warning',
-      type: 'tracker',
-      message: 'Retamar Trk. 15: Alarma',
-      description: 'Tracker 15 con alguna alarma activa.',
-      timestamp: now,
-      device: 'TRK15',
-      value: 1,
-      threshold: 0,
-      grafanaData: {
-        ruleId: 'RETAMAR_TRK_15',
-        fingerprint: 'demo_retamar_trk_015',
-        priority: 'Media'
-      }
-    },
-    {
-      id: 'DEMO_RETAMAR_UPS_CT01',
-      plant: 'RETAMAR',
-      severity: 'critical',
-      type: 'power',
-      message: 'Retamar: Fallo UPS CT01',
-      description: 'UPS CT01 en modo batería o en alarma.',
-      timestamp: now,
-      device: 'UPS_CT01',
-      value: 1,
-      threshold: 0,
-      grafanaData: {
-        ruleId: 'RETAMAR_UPS_CT01',
-        fingerprint: 'demo_retamar_ups_001',
-        priority: 'Alta'
-      }
-    },
-    {
-      id: 'DEMO_RETAMAR_CPM_RELE',
-      plant: 'RETAMAR',
-      severity: 'critical',
-      type: 'protection',
-      message: 'Retamar: Fallo rele CPM',
-      description: 'ReleCPM disparado o con alarmas activas.',
-      timestamp: now,
-      device: 'RELE_CPM',
-      value: 1,
-      threshold: 0,
-      grafanaData: {
-        ruleId: 'RETAMAR_CPM_RELE',
-        fingerprint: 'demo_retamar_cpm_001',
-        priority: 'Alta'
-      }
-    }
-  ];
-}
-
-// Función para crear alarmas de fallback
-function createFallbackAlarms() {
-  const now = new Date().toISOString();
-  
-  return [
-    {
-      id: 'FALLBACK_TOKEN_ERROR',
-      plant: 'LAMAJA',
-      severity: 'warning',
-      type: 'communication',
-      message: 'Token de Grafana no configurado - Usando datos de ejemplo',
-      timestamp: now,
-      value: null,
-      threshold: null,
-      grafanaData: {
-        ruleId: 'token_fallback',
-        fingerprint: 'fallback_002'
-      }
-    }
-  ];
 }
 
 // Función para mapear alertas de Grafana a nuestro formato

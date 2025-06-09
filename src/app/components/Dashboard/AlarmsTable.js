@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Clock, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { AlertTriangle, Clock } from 'lucide-react';
 
 const AlarmsTable = () => {
     const [alarms, setAlarms] = useState([]);
@@ -23,9 +23,6 @@ const AlarmsTable = () => {
                     equipment: extractEquipmentName(alarm),
                     alarmType: alarm.message || alarm.type || 'Alarma general',
                     startDate: alarm.timestamp,
-                    endDate: null,
-                    acknowledgeDate: null,
-                    status: 'active',
                     manufacturer: getManufacturerFromDevice(extractEquipmentName(alarm)),
                     plant: alarm.plant || 'UNKNOWN',
                     severity: alarm.severity || 'warning'
@@ -96,9 +93,6 @@ const AlarmsTable = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Mostrar todas las alarmas sin filtros
-    const filteredAlarms = alarms;
-
     // Formatear fecha
     const formatDate = (dateString) => {
         if (!dateString) return '-';
@@ -110,37 +104,6 @@ const AlarmsTable = () => {
             hour: '2-digit',
             minute: '2-digit'
         });
-    };
-
-    // Badge de estado
-    const getStatusBadge = (status) => {
-        const statusConfig = {
-            active: {
-                label: 'Activa',
-                color: 'badge-red text-red-700 dark:text-red-400',
-                icon: XCircle
-            },
-            acknowledged: {
-                label: 'Reconocida',
-                color: 'badge-yellow text-yellow-700 dark:text-yellow-400',
-                icon: Eye
-            },
-            resolved: {
-                label: 'Resuelta',
-                color: 'badge-green text-green-700 dark:text-green-400',
-                icon: CheckCircle
-            }
-        };
-
-        const config = statusConfig[status] || statusConfig.active;
-        const Icon = config.icon;
-
-        return (
-            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
-                <Icon size={12} />
-                {config.label}
-            </div>
-        );
     };
 
     // Badge de severidad
@@ -168,16 +131,6 @@ const AlarmsTable = () => {
             </span>
         );
     };
-
-    // Obtener equipos únicos para estadísticas
-    const uniqueEquipmentTypes = [...new Set(alarms.map(alarm => {
-        if (alarm.equipment.includes('INV')) return 'INV';
-        if (alarm.equipment.includes('TRK')) return 'TRK';
-        if (alarm.equipment.includes('SUBESTACION')) return 'SUBESTACION';
-        if (alarm.equipment.includes('UPS')) return 'UPS';
-        if (alarm.equipment.includes('METEO')) return 'METEO';
-        return 'OTHER';
-    }))];
 
     if (loading) {
         return (
@@ -209,14 +162,10 @@ const AlarmsTable = () => {
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Equipo</th>
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Tipo de Alarma</th>
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Comienzo</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Finalización</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Reconocimiento</th>
-                                <th className="text-center p-4 font-semibold text-primary text-sm">Estado Alarma</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fabricante</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredAlarms.map((alarm) => (
+                            {alarms.map((alarm) => (
                                 <tr key={alarm.id} className="border-b border-custom hover-bg">
                                     <td className="p-4">
                                         <div className="flex items-center gap-2">
@@ -238,35 +187,13 @@ const AlarmsTable = () => {
                                             <span className="text-primary">{formatDate(alarm.startDate)}</span>
                                         </div>
                                     </td>
-
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <Clock size={14} className="text-secondary" />
-                                            <span className="text-primary">{formatDate(alarm.endDate)}</span>
-                                        </div>
-                                    </td>
-
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <Clock size={14} className="text-secondary" />
-                                            <span className="text-primary">{formatDate(alarm.acknowledgeDate)}</span>
-                                        </div>
-                                    </td>
-
-                                    <td className="p-4 text-center">
-                                        {getStatusBadge(alarm.status)}
-                                    </td>
-
-                                    <td className="p-4">
-                                        <span className="text-primary font-medium">{alarm.manufacturer}</span>
-                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
 
-                {filteredAlarms.length === 0 && !loading && (
+                {alarms.length === 0 && !loading && (
                     <div className="text-center py-8">
                         <AlertTriangle size={48} className="mx-auto text-secondary mb-2" />
                         <p className="text-secondary">

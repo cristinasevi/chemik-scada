@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Clock, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { AlertTriangle, Clock } from 'lucide-react';
 
 const LaMajaAlarmsTable = () => {
     const [alarms, setAlarms] = useState([]);
@@ -29,10 +29,6 @@ const LaMajaAlarmsTable = () => {
                     equipment: extractEquipmentName(alarm),
                     alarmType: alarm.message || alarm.type || 'Alarma general',
                     startDate: alarm.timestamp,
-                    endDate: null,
-                    acknowledgeDate: null,
-                    status: 'active',
-                    manufacturer: getManufacturerFromDevice(extractEquipmentName(alarm)),
                     severity: alarm.severity || 'warning'
                 }));
 
@@ -78,21 +74,6 @@ const LaMajaAlarmsTable = () => {
         return 'DESCONOCIDO';
     };
 
-    const getManufacturerFromDevice = (device) => {
-        if (!device || device === 'DESCONOCIDO') return 'Desconocido';
-        
-        const deviceUpper = device.toUpperCase();
-        
-        if (deviceUpper.includes('INV')) return 'SMA';
-        if (deviceUpper.includes('TRK')) return 'PVH';
-        if (deviceUpper.includes('SUBESTACION') || deviceUpper.includes('ESTADO')) return 'Schneider';
-        if (deviceUpper.includes('UPS')) return 'APC';
-        if (deviceUpper.includes('METEO')) return 'Vaisala';
-        if (deviceUpper.includes('CONTADOR')) return 'Schneider';
-        
-        return 'Desconocido';
-    };
-
     useEffect(() => {
         loadAlarmsData();
         
@@ -112,37 +93,6 @@ const LaMajaAlarmsTable = () => {
             hour: '2-digit',
             minute: '2-digit'
         });
-    };
-
-    // Badge de estado
-    const getStatusBadge = (status) => {
-        const statusConfig = {
-            active: {
-                label: 'Activa',
-                color: 'badge-red text-red-700 dark:text-red-400',
-                icon: XCircle
-            },
-            acknowledged: {
-                label: 'Reconocida',
-                color: 'badge-yellow text-yellow-700 dark:text-yellow-400',
-                icon: Eye
-            },
-            resolved: {
-                label: 'Resuelta',
-                color: 'badge-green text-green-700 dark:text-green-400',
-                icon: CheckCircle
-            }
-        };
-
-        const config = statusConfig[status] || statusConfig.active;
-        const Icon = config.icon;
-
-        return (
-            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
-                <Icon size={12} />
-                {config.label}
-            </div>
-        );
     };
 
     // Badge de severidad
@@ -180,7 +130,7 @@ const LaMajaAlarmsTable = () => {
                 </div>
             </div>
         );
-    }
+    };
 
     return (
         <div className="p-6 space-y-6">
@@ -199,10 +149,6 @@ const LaMajaAlarmsTable = () => {
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Equipo</th>
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Tipo de Alarma</th>
                                 <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Comienzo</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Finalización</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fecha Reconocimiento</th>
-                                <th className="text-center p-4 font-semibold text-primary text-sm">Estado</th>
-                                <th className="text-left p-4 font-semibold text-primary text-sm">Fabricante</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -227,28 +173,6 @@ const LaMajaAlarmsTable = () => {
                                             <Clock size={14} className="text-secondary" />
                                             <span className="text-primary">{formatDate(alarm.startDate)}</span>
                                         </div>
-                                    </td>
-
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <Clock size={14} className="text-secondary" />
-                                            <span className="text-primary">{formatDate(alarm.endDate)}</span>
-                                        </div>
-                                    </td>
-
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <Clock size={14} className="text-secondary" />
-                                            <span className="text-primary">{formatDate(alarm.acknowledgeDate)}</span>
-                                        </div>
-                                    </td>
-
-                                    <td className="p-4 text-center">
-                                        {getStatusBadge(alarm.status)}
-                                    </td>
-
-                                    <td className="p-4">
-                                        <span className="text-primary font-medium">{alarm.manufacturer}</span>
                                     </td>
                                 </tr>
                             ))}
