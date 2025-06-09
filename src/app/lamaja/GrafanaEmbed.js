@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 const GrafanaEmbed = ({
-  dashboardId = null,
-  dashboardName = null,
+  dashboardId = 'de9vm762h8tfkc',
+  dashboardName = 'e2808e-la-maja',
   panelId = null,
-  from = 'now-6h',
-  to = 'now',
+  from = 'now/d',
+  to = 'now/d',
   refresh = '5s',
   theme = 'auto',
   height = '100vh',
@@ -145,7 +145,7 @@ const GrafanaEmbed = ({
         <div className="absolute inset-0 flex items-center justify-center header-bg z-10">
           <div className="text-center">
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-            <p className="text-sm text-gray-600 dark:text-gray-300">Cargando dashboard...</p>
+            <p className="text-sm text-gray-500">Cargando dashboard...</p>
           </div>
         </div>
       )}
