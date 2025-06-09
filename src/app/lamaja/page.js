@@ -1,14 +1,19 @@
 import GrafanaEmbed from './GrafanaEmbed';
+import LaMajaAlarmsTable from './LaMajaAlarmsTable';
 
 export default function LamajaPage() {
   return (
-    <div className="h-screen w-full">
-      <GrafanaEmbed 
-        height="100vh"
-        from="now-24h"
-        to="now"
-        className="w-full h-full"
-      />
+    <div className="w-full">
+      <div className="w-full">
+        <GrafanaEmbed 
+          height="132vh"
+          from="now-24h"
+          to="now"
+          className="w-full h-full"
+        />
+      </div>
+      
+      <LaMajaAlarmsTable />
     </div>
   );
 }
