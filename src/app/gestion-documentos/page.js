@@ -390,7 +390,7 @@ const GestionDocumentosPage = () => {
                             uploadedBy: 'Google Drive',
                             uploadedAt: file.createdTime,
                             tags: [],
-                            description: `Archivo desde Google Drive: ${file.name}`,
+                            description: ``,
                             googleId: file.id,
                             isGoogleDrive: true
                         };
@@ -634,10 +634,6 @@ const GestionDocumentosPage = () => {
                     <span className={`text-sm truncate ${isSelected ? 'text-selected font-medium' : 'text-primary'}`}>
                         {folder.name}
                     </span>
-
-                    {folder.googleId && (
-                        <Cloud size={12} className="text-blue-500 ml-1" title="Google Drive" />
-                    )}
                 </div>
 
                 {isExpanded && hasChildren && (
@@ -722,19 +718,6 @@ const GestionDocumentosPage = () => {
                             <Grid size={16} />
                         </button>
                     </div>
-
-                    {/* Solo botón de subir archivos */}
-                    {isGoogleAuth && (
-                        <button
-                            onClick={() => setShowUploadModal(true)}
-                            disabled={isUploading}
-                            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
-                            title="Subir archivos"
-                        >
-                            <Upload size={16} />
-                            Subir Archivos
-                        </button>
-                    )}
                 </div>
                 <div className="flex items-center gap-4">
                     {/* Estado de Google Drive */}
@@ -761,7 +744,6 @@ const GestionDocumentosPage = () => {
                                 disabled={isGoogleLoading}
                                 className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
                             >
-                                <Cloud size={14} />
                                 {isGoogleLoading ? 'Conectando...' : 'Conectar Google Drive'}
                             </button>
                         )}
@@ -778,26 +760,18 @@ const GestionDocumentosPage = () => {
                             <div className="text-sm font-medium text-secondary">Carpetas</div>
                             <div className="flex items-center gap-2">
                                 {isGoogleAuth && (
-                                    <Cloud size={16} className="text-blue-500" title="Sincronizado con Google Drive" />
+                                    <button
+                                        onClick={() => setShowCreateFolderModal(true)}
+                                        disabled={isUploading}
+                                        className="p-1 text-blue-500 hover:bg-blue-100 rounded cursor-pointer disabled:opacity-50"
+                                        title="Crear carpeta"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
                                 )}
                             </div>
                         </div>
-                        
-                        {/* Botón Nueva Carpeta reubicado aquí */}
-                        {isGoogleAuth && (
-                            <div className="mb-3">
-                                <button
-                                    onClick={() => setShowCreateFolderModal(true)}
-                                    disabled={isUploading}
-                                    className="flex items-center gap-2 w-full px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50 text-sm"
-                                    title="Crear carpeta"
-                                >
-                                    <Plus size={14} />
-                                    Nueva Carpeta
-                                </button>
-                            </div>
-                        )}
-                        
+
                         {renderFolderTree('root')}
                     </div>
                 </div>
@@ -833,7 +807,7 @@ const GestionDocumentosPage = () => {
                                         <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
                                         <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
                                         <th className="text-left p-3 font-medium text-primary text-sm">Modificado</th>
-                                        <th className="text-right p-3 font-medium text-primary text-sm">Acciones</th>
+                                        <th className="text-right p-3 pr-6 font-medium text-primary text-sm">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -845,9 +819,6 @@ const GestionDocumentosPage = () => {
                                                     <div>
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-medium text-primary">{document.name}</span>
-                                                            {document.isGoogleDrive && (
-                                                                <Cloud size={12} className="text-blue-500" title="Google Drive" />
-                                                            )}
                                                         </div>
                                                         <div className="text-sm text-secondary">{document.description}</div>
                                                     </div>
@@ -859,7 +830,7 @@ const GestionDocumentosPage = () => {
                                             <td className="p-3 text-secondary text-sm">
                                                 {formatDate(document.uploadedAt)}
                                             </td>
-                                            <td className="p-3">
+                                            <td className="p-3 pr-6">
                                                 <div className="flex items-center justify-end gap-1">
                                                     <button
                                                         onClick={() => {
@@ -900,9 +871,6 @@ const GestionDocumentosPage = () => {
                                         <div className="flex flex-col items-center text-center">
                                             <div className="relative">
                                                 <FileText className="text-blue-500 mb-2" size={32} />
-                                                {document.isGoogleDrive && (
-                                                    <Cloud size={12} className="absolute -top-1 -right-1 text-blue-500" />
-                                                )}
                                             </div>
                                             <div className="text-sm font-medium text-primary truncate w-full" title={document.name}>
                                                 {document.name}
@@ -921,7 +889,6 @@ const GestionDocumentosPage = () => {
                                 <div className="text-center">
                                     {isGoogleAuth ? (
                                         <>
-                                            <Cloud size={48} className="mx-auto text-secondary mb-4" />
                                             <h3 className="text-lg font-medium text-primary mb-2">Carpeta vacía</h3>
                                             <p className="text-secondary">
                                                 {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta de Google Drive está vacía'}
@@ -941,6 +908,18 @@ const GestionDocumentosPage = () => {
                         )}
                     </div>
                 </div>
+                {/* Botón flotante para subir archivos */}
+                {isGoogleAuth && (
+                    <button
+                        onClick={() => setShowUploadModal(true)}
+                        disabled={isUploading}
+                        className="fixed bottom-6 right-6 flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 cursor-pointer disabled:opacity-50 z-40 transition-all duration-200 hover:scale-105"
+                        title="Subir archivos"
+                    >
+                        <Upload size={20} />
+                        <span className="hidden sm:block">Subir</span>
+                    </button>
+                )}
             </div>
 
             {/* Modal para subir archivos */}
@@ -1129,9 +1108,6 @@ const GestionDocumentosPage = () => {
                                 <div className="flex items-start gap-4">
                                     <div className="relative">
                                         <FileText className="text-blue-500" size={32} />
-                                        {selectedDocument.isGoogleDrive && (
-                                            <Cloud size={16} className="absolute -top-2 -right-2 text-blue-500" />
-                                        )}
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="text-xl font-semibold text-primary mb-2">{selectedDocument.name}</h4>
@@ -1159,7 +1135,6 @@ const GestionDocumentosPage = () => {
                                         {selectedDocument.isGoogleDrive && (
                                             <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                                                 <div className="flex items-center gap-2">
-                                                    <Cloud size={16} className="text-blue-500" />
                                                     <span className="text-sm text-blue-800 font-medium">
                                                         Archivo sincronizado desde Google Drive
                                                     </span>
@@ -1196,7 +1171,6 @@ const GestionDocumentosPage = () => {
                                             onClick={() => window.open(`https://drive.google.com/file/d/${selectedDocument.googleId}/view`, '_blank')}
                                             className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
                                         >
-                                            <Cloud size={16} />
                                             Abrir en Drive
                                         </button>
                                     )}
