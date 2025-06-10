@@ -7,7 +7,7 @@ export default function LamajaPage() {
       <div className="w-full">
         <GrafanaEmbed 
           height="132vh"
-          from="now-24h"
+          from="now/d"
           to="now"
           className="w-full h-full"
         />

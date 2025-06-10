@@ -7,7 +7,7 @@ const GrafanaEmbed = ({
   dashboardName = 'e2808e-retamar',
   panelId = null,
   from = 'now/d',
-  to = 'now/d',
+  to = 'now',
   refresh = '5s',
   theme = 'auto',
   height = '100vh',
@@ -22,8 +22,8 @@ const GrafanaEmbed = ({
   const iframeRef = useRef(null);
 
   // Configuración de Grafana
-  const grafanaUrl = process.env.NEXT_PUBLIC_GRAFANA_URL || 'http://192.168.3.100:3003';
-  const defaultDashboardId = process.env.NEXT_PUBLIC_GRAFANA_DASHBOARD_ID || '405f439b-2f99-48f9-b4fc-9e35ceec411d';
+  const grafanaUrl = 'http://192.168.3.100:3003';
+  const defaultDashboardId = '405f439b-2f99-48f9-b4fc-9e35ceec411d';
 
   // Función para detectar el tema actual
   const detectCurrentTheme = useCallback(() => {
@@ -79,12 +79,12 @@ const GrafanaEmbed = ({
     }
   }, [buildGrafanaUrl]);
 
-  // Detectar cambios de tema inicial - SOLO UNA VEZ
+  // Detectar cambios de tema inicial
   useEffect(() => {
     const detectedTheme = detectCurrentTheme();
     setCurrentTheme(detectedTheme);
     setThemeDetected(true);
-  }, []); // Sin dependencias para que solo ejecute una vez
+  }, []);
 
   // Observar cambios en el tema del documento
   useEffect(() => {

@@ -7,7 +7,7 @@ export default function RetamarPage() {
       <div className="w-full">
         <GrafanaEmbed 
           height="140vh"
-          from="now-24h"
+          from="now/d"
           to="now"
           className="w-full h-full"
         />
