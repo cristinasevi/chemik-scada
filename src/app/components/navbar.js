@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { Menu, Home, Users, Activity, Download, FileText, AlertTriangle, ArrowLeft, Zap, BarChart3, Wrench, Map, PieChart, Calculator } from 'lucide-react';
 
@@ -9,11 +9,13 @@ const Navbar = () => {
   const [showMainMenu, setShowMainMenu] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isAdmin } = useAuth();
 
-  // Determinar si estamos en una subsección
-  const isInLamaja = pathname.startsWith('/lamaja');
-  const isInRetamar = pathname.startsWith('/retamar');
+  // Determinar si estamos en una subsección o en contexto de planta
+  const plantaParam = searchParams.get('planta');
+  const isInLamaja = pathname.startsWith('/lamaja') || plantaParam === 'lamaja';
+  const isInRetamar = pathname.startsWith('/retamar') || plantaParam === 'retamar';
 
   // Lista principal de navegación (menú raíz)
   const mainItems = [
@@ -21,7 +23,6 @@ const Navbar = () => {
     { icon: Activity, label: "La Maja", path: "/lamaja" },
     { icon: Activity, label: "Retamar", path: "/retamar" },
     { icon: FileText, label: "Gestión de Documentos", path: "/gestion-documentos" },
-    { icon: Download, label: "Exportación de variables", path: "/exportacion-variables" },
   ];
 
   // Submenú para La Maja
@@ -48,10 +49,17 @@ const Navbar = () => {
     { icon: FileText, label: "Facturación", path: "/retamar/facturacion" },
   ];
 
-  // Items del footer - solo incluir usuarios si es admin
-  const footerItems = [
-    ...(isAdmin ? [{ icon: Users, label: "Usuarios", path: "/usuarios" }] : [])
-  ];
+  // Items del footer - incluir contexto de planta en exportación
+  const getFooterItems = () => {
+    const exportPath = isInLamaja ? "/exportacion-variables?planta=lamaja" : 
+                     isInRetamar ? "/exportacion-variables?planta=retamar" : 
+                     "/exportacion-variables";
+
+    return [
+      { icon: Download, label: "Exportación de variables", path: exportPath },
+      ...(isAdmin ? [{ icon: Users, label: "Usuarios", path: "/usuarios" }] : [])
+    ];
+  };
 
   // Determinar qué items mostrar según la ubicación
   const getMenuItems = () => {
@@ -72,9 +80,16 @@ const Navbar = () => {
     setShowMainMenu(false);
   };
 
-  const isActive = (path) => pathname === path;
+  const isActive = (path) => {
+    // Para exportacion-variables, considerar activo sin importar query params
+    if (path.includes('/exportacion-variables') && pathname === '/exportacion-variables') {
+      return true;
+    }
+    return pathname === path;
+  };
 
   const currentMenuItems = getMenuItems();
+  const footerItems = getFooterItems();
 
   return (
     <div className="relative">

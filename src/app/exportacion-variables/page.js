@@ -1,10 +1,12 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Download, Filter, Calendar, Database, FileText, RefreshCw, Play, Copy, Eye, ChevronDown, ChevronRight, X, Plus, ArrowLeft, ArrowRight } from 'lucide-react';
 
 const ExportacionVariablesPage = () => {
   const [selectedBucket, setSelectedBucket] = useState('PV');
+  const [selectedPlant, setSelectedPlant] = useState('');
   const [measurements, setMeasurements] = useState([]);
   const [fields, setFields] = useState([]);
   const [availableTagKeys, setAvailableTagKeys] = useState([]);
@@ -25,6 +27,8 @@ const ExportacionVariablesPage = () => {
 
   // Cache para evitar llamadas repetidas
   const [bucketCache, setBucketCache] = useState(new Map());
+
+  const searchParams = useSearchParams();
 
   const [loadingStates, setLoadingStates] = useState({
     bucketData: false,
@@ -50,6 +54,35 @@ const ExportacionVariablesPage = () => {
   const [useCustomQuery, setUseCustomQuery] = useState(false);
   const [windowPeriods, setWindowPeriods] = useState([]);
   const [showCalendar, setShowCalendar] = useState(false);
+
+  useEffect(() => {
+    const plantaParam = searchParams.get('planta');
+    if (plantaParam) {
+      setSelectedPlant(plantaParam);
+
+      // Si viene desde una planta específica, agregar automáticamente el filtro
+      const plantFilter = {
+        id: Date.now(),
+        key: 'PVO_Plant',
+        selectedValues: [plantaParam === 'lamaja' ? 'La Maja' : 'Retamar'],
+        availableValues: ['La Maja', 'Retamar'],
+        loading: false,
+        timeStart: '',
+        timeEnd: '',
+        valueMin: '',
+        valueMax: ''
+      };
+
+      setFilters(prevFilters => {
+        // Solo agregar si no existe ya un filtro de planta
+        const hasPlantFilter = prevFilters.some(f => f.key === 'PVO_Plant');
+        if (!hasPlantFilter) {
+          return [plantFilter, ...prevFilters.filter(f => f.key !== '')];
+        }
+        return prevFilters;
+      });
+    }
+  }, [searchParams]);
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -327,6 +360,9 @@ const ExportacionVariablesPage = () => {
         } else if (filter.key === '_field') {
           // APLICAR FILTRO POR TYPE AQUÍ TAMBIÉN
           availableValues = await getFilteredFieldsByType();
+
+        } else if (filter.key === 'PVO_Plant') {
+          availableValues = ['La Maja', 'Retamar'];
         } else {
           const response = await fetch('/api/influxdb/universal-values', {
             method: 'POST',
@@ -409,6 +445,8 @@ const ExportacionVariablesPage = () => {
           // Fallback optimizado
           if (filter.key === '_field') {
             availableValues = await getFilteredFieldsByType(previousFilters);
+          } else if (filter.key === 'PVO_Plant') {
+            availableValues = ['La Maja', 'Retamar'];
           } else {
             const fallbackResponse = await fetch('/api/influxdb/universal-values', {
               method: 'POST',
@@ -924,7 +962,7 @@ const ExportacionVariablesPage = () => {
       query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
 
-    query += `  |> limit(n: 50000)\n`; 
+    query += `  |> limit(n: 50000)\n`;
     query += `  |> yield(name: "result")`;
 
     setRawQuery(query);
