@@ -64,8 +64,8 @@ const ExportacionVariablesPage = () => {
       const plantFilter = {
         id: Date.now(),
         key: 'PVO_Plant',
-        selectedValues: [plantaParam === 'lamaja' ? 'La Maja' : 'Retamar'],
-        availableValues: ['La Maja', 'Retamar'],
+        selectedValues: [plantaParam === 'lamaja' ? 'LAMAJA' : 'RETAMAR'],
+        availableValues: ['LAMAJA', 'RETAMAR'],
         loading: false,
         timeStart: '',
         timeEnd: '',
@@ -77,7 +77,18 @@ const ExportacionVariablesPage = () => {
         // Solo agregar si no existe ya un filtro de planta
         const hasPlantFilter = prevFilters.some(f => f.key === 'PVO_Plant');
         if (!hasPlantFilter) {
-          return [plantFilter, ...prevFilters.filter(f => f.key !== '')];
+          const newFilters = [plantFilter, ...prevFilters.filter(f => f.key !== '')];
+
+          // Recargar los valores disponibles de otros filtros después de agregar planta
+          setTimeout(() => {
+            newFilters.forEach(filter => {
+              if (filter.key && filter.key !== 'PVO_Plant' && !['_time', '_value'].includes(filter.key)) {
+                reloadFilterValues(filter.id);
+              }
+            });
+          }, 100);
+
+          return newFilters;
         }
         return prevFilters;
       });
@@ -325,9 +336,41 @@ const ExportacionVariablesPage = () => {
     setFilters(prev => [...prev, newFilter]);
   }, []);
 
+  const shouldReloadFilter = useCallback((filterId) => {
+    const filter = filters.find(f => f.id === filterId);
+    if (!filter || !filter.key || ['_time', '_value'].includes(filter.key)) {
+      return false;
+    }
+
+    // No recargar si ya está cargando
+    if (filter.loading) {
+      return false;
+    }
+
+    // No recargar si ya tiene valores y no hay cambios en filtros anteriores
+    const currentFilterIndex = filters.findIndex(f => f.id === filterId);
+    const previousFilters = filters.slice(0, currentFilterIndex);
+
+    // Si no hay filtros anteriores con valores, no necesita recarga
+    const hasActivePreviousFilters = previousFilters.some(f =>
+      f.key && f.selectedValues.length > 0 && !['_time', '_value'].includes(f.key)
+    );
+
+    // Si tiene valores y no hay filtros anteriores activos, no recargar
+    if (filter.availableValues.length > 0 && !hasActivePreviousFilters) {
+      return false;
+    }
+
+    return true;
+  }, [filters]);
+
   const reloadFilterValues = useCallback(async (filterId) => {
     const currentFilters = filters; // Usar snapshot actual
     const filter = currentFilters.find(f => f.id === filterId);
+
+    if (!shouldReloadFilter(filterId)) {
+      return;
+    }
 
     if (!filter || !filter.key || ['_time', '_value'].includes(filter.key)) {
       return;
@@ -362,7 +405,7 @@ const ExportacionVariablesPage = () => {
           availableValues = await getFilteredFieldsByType();
 
         } else if (filter.key === 'PVO_Plant') {
-          availableValues = ['La Maja', 'Retamar'];
+          availableValues = ['LAMAJA', 'RETAMAR'];
         } else {
           const response = await fetch('/api/influxdb/universal-values', {
             method: 'POST',
@@ -446,7 +489,7 @@ const ExportacionVariablesPage = () => {
           if (filter.key === '_field') {
             availableValues = await getFilteredFieldsByType(previousFilters);
           } else if (filter.key === 'PVO_Plant') {
-            availableValues = ['La Maja', 'Retamar'];
+            availableValues = ['LAMAJA', 'RETAMAR'];
           } else {
             const fallbackResponse = await fetch('/api/influxdb/universal-values', {
               method: 'POST',
@@ -493,7 +536,7 @@ const ExportacionVariablesPage = () => {
         )
       );
     }
-  }, [selectedBucket, measurements, fields, filters]);
+  }, [shouldReloadFilter, selectedBucket, measurements, fields, filters]);
 
   const removeFilter = useCallback((filterId) => {
     setFilters(prev => {
@@ -501,25 +544,50 @@ const ExportacionVariablesPage = () => {
       const removedIndex = prev.findIndex(f => f.id === filterId);
       const newFilters = prev.filter(filter => filter.id !== filterId);
 
-      // Solo recargar filtros posteriores si el filtro eliminado tenía valores que podrían afectar
-      if (filterToRemove?.selectedValues?.length > 0 && !['_time', '_value'].includes(filterToRemove.key)) {
-        setTimeout(() => {
-          // Recargar solo los valores disponibles de filtros posteriores, manteniendo selecciones
-          newFilters.slice(removedIndex).forEach((filter, index) => {
-            if (filter.key && !['_time', '_value'].includes(filter.key)) {
-              setTimeout(() => {
-                reloadFilterValues(filter.id);
-              }, index * 50);
-            }
-          });
-        }, 100);
+      // Solo recargar si el filtro eliminado realmente afectaba a otros
+      if (filterToRemove?.selectedValues?.length > 0 &&
+        !['_time', '_value'].includes(filterToRemove.key) &&
+        removedIndex < newFilters.length) {
+
+        // Solo recargar el PRIMER filtro posterior
+        const nextFilter = newFilters
+          .slice(removedIndex)
+          .find(f => f.key && !['_time', '_value'].includes(f.key));
+
+        if (nextFilter) {
+          setTimeout(() => {
+            reloadFilterValues(nextFilter.id);
+          }, 200);
+        }
       }
 
       return newFilters;
     });
   }, [reloadFilterValues]);
 
+  const clearDependentFilters = useCallback((filterId) => {
+    const currentFilterIndex = filters.findIndex(f => f.id === filterId);
+
+    setFilters(prevFilters =>
+      prevFilters.map((filter, index) => {
+        // Limpiar solo los filtros posteriores que tienen valores seleccionados
+        if (index > currentFilterIndex &&
+          filter.selectedValues.length > 0 &&
+          !['_time', '_value'].includes(filter.key)) {
+          return {
+            ...filter,
+            selectedValues: [],
+            availableValues: [] // También limpiar valores disponibles
+          };
+        }
+        return filter;
+      })
+    );
+  }, [filters]);
+
   const updateFilterKey = useCallback(async (filterId, key) => {
+    clearDependentFilters(filterId);
+
     setFilters(prevFilters =>
       prevFilters.map(filter =>
         filter.id === filterId
@@ -695,7 +763,7 @@ const ExportacionVariablesPage = () => {
         );
       }
     }
-  }, [selectedBucket, measurements, fields, filters]);
+  }, [selectedBucket, measurements, fields, filters, clearDependentFilters]);
 
   const getFilteredFieldsByType = async (appliedFilters = []) => {
     try {
@@ -787,6 +855,17 @@ const ExportacionVariablesPage = () => {
   };
 
   const updateFilterValues = useCallback((filterId, values) => {
+    const currentFilter = filters.find(f => f.id === filterId);
+    if (!currentFilter) return;
+
+    // Verificar si realmente cambió la selección
+    const currentValues = currentFilter.selectedValues.sort();
+    const newValues = values.sort();
+
+    if (JSON.stringify(currentValues) === JSON.stringify(newValues)) {
+      return; // No hay cambios reales, no hacer nada
+    }
+
     setFilters(prevFilters =>
       prevFilters.map(filter =>
         filter.id === filterId
@@ -795,64 +874,69 @@ const ExportacionVariablesPage = () => {
       )
     );
 
-    // Usar la misma lógica de debounce para consistency
-    const currentFilterIndex = filters.findIndex(f => f.id === filterId);
-    const dependentFilterIds = filters
-      .slice(currentFilterIndex + 1)
-      .filter(f => f.key && !['_time', '_value'].includes(f.key))
-      .map(f => f.id);
+    // Solo recargar si hay cambios significativos y solo los filtros que realmente dependen
+    if (values.length > 0 || currentFilter.selectedValues.length > 0) {
+      const currentFilterIndex = filters.findIndex(f => f.id === filterId);
 
-    setReloadQueue(prev => {
-      const newQueue = new Set([...prev, ...dependentFilterIds]);
-      return newQueue;
-    });
-  }, [filters]);
+      // Solo recargar el PRIMER filtro posterior que tenga una key válida
+      const nextFilter = filters
+        .slice(currentFilterIndex + 1)
+        .find(f => f.key && !['_time', '_value'].includes(f.key));
+
+      if (nextFilter) {
+        // Usar un timeout más largo para evitar recargas múltiples
+        setTimeout(() => {
+          reloadFilterValues(nextFilter.id);
+        }, 300);
+      }
+    }
+  }, [filters, reloadFilterValues]);
 
   const handleFilterValueChange = useCallback((filterId, value, isChecked) => {
+    const currentFilter = filters.find(f => f.id === filterId);
+    if (!currentFilter) return;
+
     // Actualizar inmediatamente el estado visual
+    const newValues = isChecked
+      ? [...currentFilter.selectedValues, value]
+      : currentFilter.selectedValues.filter(v => v !== value);
+
     setFilters(prevFilters =>
       prevFilters.map(filter => {
         if (filter.id === filterId) {
-          const newValues = isChecked
-            ? [...filter.selectedValues, value]
-            : filter.selectedValues.filter(v => v !== value);
-
           return { ...filter, selectedValues: newValues };
         }
         return filter;
       })
     );
 
-    // Usar debounce para las recargas de filtros dependientes
+    // Usar debounce más agresivo para cambios de checkbox
     const currentFilterIndex = filters.findIndex(f => f.id === filterId);
-    const dependentFilterIds = filters
-      .slice(currentFilterIndex + 1)
-      .filter(f => f.key && !['_time', '_value'].includes(f.key))
-      .map(f => f.id);
 
-    // Añadir filtros dependientes a la cola de recarga
-    setReloadQueue(prev => {
-      const newQueue = new Set([...prev, ...dependentFilterIds]);
-      return newQueue;
-    });
+    // Solo marcar el PRIMER filtro posterior para recarga
+    const nextFilterId = filters
+      .slice(currentFilterIndex + 1)
+      .find(f => f.key && !['_time', '_value'].includes(f.key))?.id;
+
+    if (nextFilterId) {
+      setReloadQueue(prev => new Set([nextFilterId])); // Solo uno en la cola
+    }
   }, [filters]);
 
   useEffect(() => {
     if (reloadQueue.size === 0) return;
 
     const timeoutId = setTimeout(() => {
-      // Procesar todos los filtros en la cola
-      const filtersToReload = Array.from(reloadQueue);
+      // Procesar solo el primer filtro de la cola
+      const filterToReload = Array.from(reloadQueue)[0];
 
-      filtersToReload.forEach((filterId, index) => {
-        setTimeout(() => {
-          reloadFilterValues(filterId);
-        }, index * 100); // Pequeño delay entre filtros para evitar sobrecarga
-      });
+      if (filterToReload) {
+        reloadFilterValues(filterToReload);
+      }
 
       // Limpiar la cola
       setReloadQueue(new Set());
-    }, 150); // Debounce de 150ms
+    }, 400); // Aumentar el debounce a 400ms
 
     return () => clearTimeout(timeoutId);
   }, [reloadQueue, reloadFilterValues]);
@@ -1111,7 +1195,7 @@ const ExportacionVariablesPage = () => {
             const id = idIndex !== -1 ? cells[idIndex] : '';
 
             // Crear el ID completo: Planta_Zona_ID
-            const fullId = [plant, zone, id].filter(part => part !== '').join('_') || 'N/A';
+            const fullId = [plant, id].filter(part => part !== '').join('_') || 'N/A';
 
             const field = cells[fieldIndex] || '';
             const time = cells[timeIndex] || '';
