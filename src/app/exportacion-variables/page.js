@@ -1026,6 +1026,11 @@ const ExportacionVariablesPage = () => {
       }
     });
 
+    // Aplicar agregación si se especifica (esto reduce naturalmente el volumen de datos)
+    if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
+      query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
+    }
+
     // Limitar registros para acelerar la query - ajustar según rango de tiempo
     const isLongTimeRange = (() => {
       if (!timeRange.start || timeRange.start === '-30m') return false;
@@ -1040,13 +1045,11 @@ const ExportacionVariablesPage = () => {
     })();
 
     const sampleSize = isLongTimeRange ? 5000 : 10000;
-    query += `  |> sample(n: ${sampleSize})\n`;
 
     if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
       query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
 
-    query += `  |> limit(n: 50000)\n`;
     query += `  |> yield(name: "result")`;
 
     setRawQuery(query);
