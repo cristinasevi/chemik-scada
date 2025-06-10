@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const GestionDocumentosPage = () => {
     const { user, isAdmin } = useAuth();
-    
+
     // Estados principales
     const [documents, setDocuments] = useState([]);
     const [folders, setFolders] = useState([]);
@@ -22,18 +22,20 @@ const GestionDocumentosPage = () => {
     const [sortOrder, setSortOrder] = useState('asc');
     const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
     const [showDocumentModal, setShowDocumentModal] = useState(false);
+    const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState(null);
 
     // Estados para Google Drive
     const [isGoogleAuth, setIsGoogleAuth] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [googleAuthInstance, setGoogleAuthInstance] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
 
-    // Configuración de Google Drive API
+    // Configuración de Google Drive API - ACTUALIZADO CON PERMISOS DE ESCRITURA
     const GOOGLE_CLIENT_ID = '890321344192-5k0qkn1ds7sfo4r8s08v898gl5lvesu1.apps.googleusercontent.com';
     const GOOGLE_API_KEY = 'AIzaSyAXtodMMbdTCs3gj7FOiA1XzVZ6NIDtI2k';
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-    const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+    const SCOPES = 'https://www.googleapis.com/auth/drive'; // Cambiado para incluir escritura
 
     // Estados para formularios
     const [uploadForm, setUploadForm] = useState({
@@ -73,13 +75,13 @@ const GestionDocumentosPage = () => {
     const initGoogleIdentity = () => {
         try {
             console.log('=== CONFIGURANDO GOOGLE IDENTITY ===');
-            
+
             if (!window.google?.accounts?.oauth2) {
                 console.error('Google Identity Services no disponible');
                 loadDefaultStructure();
                 return;
             }
-            
+
             // Configurar el cliente OAuth2
             const client = window.google.accounts.oauth2.initTokenClient({
                 client_id: GOOGLE_CLIENT_ID,
@@ -98,11 +100,11 @@ const GestionDocumentosPage = () => {
                     setIsGoogleLoading(false);
                 }
             });
-            
+
             setGoogleAuthInstance(client);
             console.log('✅ Google Identity configurado correctamente');
             loadDefaultStructure();
-            
+
         } catch (error) {
             console.error('Error configurando Google Identity:', error);
             loadDefaultStructure();
@@ -115,16 +117,16 @@ const GestionDocumentosPage = () => {
             console.error('Cliente OAuth no inicializado');
             return;
         }
-        
+
         setIsGoogleLoading(true);
         try {
             console.log('Solicitando token de acceso...');
-            
+
             // Solicitar token de acceso
             googleAuthInstance.requestAccessToken({
                 prompt: 'consent'
             });
-            
+
         } catch (error) {
             console.error('Error en sign in:', error);
             setIsGoogleLoading(false);
@@ -139,11 +141,153 @@ const GestionDocumentosPage = () => {
                 console.log('Token revocado');
             });
         }
-        
+
         setIsGoogleAuth(false);
         setGoogleAuthInstance(null);
         setIsGoogleLoading(false);
         loadDefaultStructure();
+    };
+
+    // ===== NUEVAS FUNCIONES DE SUBIDA =====
+
+    // Función para subir archivo a Google Drive
+    const uploadFileToGoogleDrive = async (file, parentFolderId = null) => {
+        try {
+            console.log('Subiendo archivo:', file.name);
+
+            // Obtener el ID de la carpeta padre
+            const targetFolderId = parentFolderId || getCurrentFolderGoogleId();
+
+            // Crear metadata del archivo
+            const metadata = {
+                name: file.name,
+                parents: targetFolderId ? [targetFolderId] : undefined
+            };
+
+            // Crear FormData para el archivo
+            const form = new FormData();
+            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+            form.append('file', file);
+
+            // Subir archivo
+            const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: new Headers({
+                    'Authorization': `Bearer ${window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token}`
+                }),
+                body: form
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error al subir archivo: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('Archivo subido exitosamente:', result);
+
+            return result;
+
+        } catch (error) {
+            console.error('Error subiendo archivo:', error);
+            throw error;
+        }
+    };
+
+    // Función para crear carpeta en Google Drive
+    const createFolderInGoogleDrive = async (folderName, parentFolderId = null) => {
+        try {
+            console.log('Creando carpeta:', folderName);
+
+            // Obtener el ID de la carpeta padre
+            const targetFolderId = parentFolderId || getCurrentFolderGoogleId();
+
+            const metadata = {
+                name: folderName,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: targetFolderId ? [targetFolderId] : undefined
+            };
+
+            const response = await window.gapi.client.drive.files.create({
+                resource: metadata
+            });
+
+            console.log('Carpeta creada exitosamente:', response.result);
+            return response.result;
+
+        } catch (error) {
+            console.error('Error creando carpeta:', error);
+            throw error;
+        }
+    };
+
+    // Función para obtener el Google ID de la carpeta actual
+    const getCurrentFolderGoogleId = () => {
+        if (selectedFolder === 'root') {
+            // Buscar el Google ID de la carpeta PLANTAS
+            const plantasFolder = folders.find(f => f.id === 'root');
+            return plantasFolder?.googleId || null;
+        } else {
+            const folder = folders.find(f => f.id === selectedFolder);
+            return folder?.googleId || null;
+        }
+    };
+
+    // Handler para subir archivos
+    const handleFileUpload = async (files) => {
+        if (!isGoogleAuth) {
+            alert('Conecta tu cuenta de Google Drive primero');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            const uploadPromises = Array.from(files).map(file => uploadFileToGoogleDrive(file));
+            await Promise.all(uploadPromises);
+
+            // Recargar la estructura después de subir
+            await loadGoogleDriveFiles();
+            setShowUploadModal(false);
+            setUploadForm({ files: [], category: '', plant: '', tags: [], description: '' });
+
+            alert('Archivos subidos exitosamente');
+
+        } catch (error) {
+            console.error('Error subiendo archivos:', error);
+            alert('Error al subir archivos: ' + error.message);
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    // Handler para crear carpeta
+    const handleCreateFolder = async () => {
+        if (!isGoogleAuth) {
+            alert('Conecta tu cuenta de Google Drive primero');
+            return;
+        }
+
+        if (!folderForm.name.trim()) {
+            alert('Ingresa un nombre para la carpeta');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            await createFolderInGoogleDrive(folderForm.name.trim());
+
+            // Recargar la estructura después de crear la carpeta
+            await loadGoogleDriveFiles();
+            setShowCreateFolderModal(false);
+            setFolderForm({ name: '', description: '', parent: 'root', plant: '', category: '' });
+
+            alert('Carpeta creada exitosamente');
+
+        } catch (error) {
+            console.error('Error creando carpeta:', error);
+            alert('Error al crear carpeta: ' + error.message);
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     // Función para cargar archivos de Google Drive
@@ -151,7 +295,7 @@ const GestionDocumentosPage = () => {
         setLoading(true);
         try {
             console.log('Cargando archivos de Google Drive...');
-            
+
             // Buscar carpeta PLANTAS en Google Drive
             const plantasResponse = await window.gapi.client.drive.files.list({
                 q: "name='PLANTAS' and mimeType='application/vnd.google-apps.folder'",
@@ -171,7 +315,7 @@ const GestionDocumentosPage = () => {
 
             // Cargar estructura de carpetas y archivos
             await loadFolderStructure(rootFolderId, 'root', 'PLANTAS');
-            
+
         } catch (error) {
             console.error('Error loading Google Drive files:', error);
             loadDefaultStructure();
@@ -182,97 +326,88 @@ const GestionDocumentosPage = () => {
     // Función para cargar estructura de carpetas
     const loadFolderStructure = async (folderId, parentId, folderName) => {
         try {
-            const response = await window.gapi.client.drive.files.list({
-                q: `'${folderId}' in parents and trashed=false`,
-                fields: 'files(id, name, mimeType, parents, createdTime, size)',
-                orderBy: 'name'
-            });
+            // Cargar toda la estructura recursivamente
+            const allFolders = [];
+            const allDocuments = [];
 
-            const files = response.result.files;
-            const newFolders = [];
-            const newDocuments = [];
+            const loadFolderRecursive = async (currentFolderId, currentParentId, currentName, level = 0) => {
+                const response = await window.gapi.client.drive.files.list({
+                    q: `'${currentFolderId}' in parents and trashed=false`,
+                    fields: 'files(id, name, mimeType, parents, createdTime, size)',
+                    orderBy: 'name'
+                });
 
-            // Crear carpeta raíz/actual
-            const currentFolder = {
-                id: parentId,
-                name: folderName,
-                parent: parentId === 'root' ? null : 'root',
-                children: [],
-                type: parentId === 'root' ? 'root' : 'folder',
-                googleId: folderId
+                const files = response.result.files;
+                const currentFolder = {
+                    id: currentParentId,
+                    name: currentName,
+                    parent: currentParentId === 'root' ? null : (level === 1 ? 'root' :
+                        allFolders.find(f => f.googleId === currentParentId)?.parent || 'root'),
+                    children: [],
+                    type: currentParentId === 'root' ? 'root' : 'folder',
+                    googleId: currentFolderId
+                };
+
+                // Solo agregar la carpeta raíz una vez
+                if (currentParentId === 'root') {
+                    allFolders.push(currentFolder);
+                }
+
+                // Procesar archivos y carpetas
+                for (const file of files) {
+                    if (file.mimeType === 'application/vnd.google-apps.folder') {
+                        // Es una carpeta
+                        const subfolder = {
+                            id: file.id,
+                            name: file.name,
+                            parent: currentParentId,
+                            children: [],
+                            type: 'folder',
+                            googleId: file.id
+                        };
+                        allFolders.push(subfolder);
+
+                        // Encontrar la carpeta padre y agregar este hijo
+                        let parentFolder = allFolders.find(f => f.id === currentParentId);
+                        if (!parentFolder && currentParentId !== 'root') {
+                            // Si no encuentra la carpeta padre, buscar por googleId
+                            parentFolder = allFolders.find(f => f.googleId === currentParentId);
+                        }
+                        if (parentFolder) {
+                            parentFolder.children.push(file.id);
+                        }
+
+                        // Cargar contenido de la subcarpeta recursivamente
+                        await loadFolderRecursive(file.id, file.id, file.name, level + 1);
+                    } else {
+                        // Es un archivo
+                        const document = {
+                            id: file.id,
+                            name: file.name,
+                            size: parseInt(file.size) || 0,
+                            type: file.mimeType,
+                            folder: currentParentId === 'root' ? 'root' : file.parents[0],
+                            uploadedBy: 'Google Drive',
+                            uploadedAt: file.createdTime,
+                            tags: [],
+                            description: `Archivo desde Google Drive: ${file.name}`,
+                            googleId: file.id,
+                            isGoogleDrive: true
+                        };
+                        allDocuments.push(document);
+                    }
+                }
             };
 
-            if (parentId === 'root') {
-                newFolders.push(currentFolder);
-            }
+            // Comenzar la carga recursiva
+            await loadFolderRecursive(folderId, parentId, folderName);
 
-            // Procesar archivos y subcarpetas
-            for (const file of files) {
-                if (file.mimeType === 'application/vnd.google-apps.folder') {
-                    // Es una carpeta
-                    const subfolder = {
-                        id: file.id,
-                        name: file.name,
-                        parent: parentId,
-                        children: [],
-                        type: 'folder',
-                        googleId: file.id
-                    };
-                    newFolders.push(subfolder);
-                    currentFolder.children.push(file.id);
+            // Actualizar estado con toda la estructura
+            setFolders(allFolders);
+            setDocuments(allDocuments);
+            setExpandedFolders(new Set(['root']));
 
-                    // Cargar contenido de la subcarpeta (limitado a 2 niveles)
-                    if (parentId === 'root') {
-                        const subFiles = await window.gapi.client.drive.files.list({
-                            q: `'${file.id}' in parents and trashed=false`,
-                            fields: 'files(id, name, mimeType, parents, createdTime, size)',
-                            orderBy: 'name'
-                        });
-                        
-                        for (const subFile of subFiles.result.files) {
-                            if (subFile.mimeType !== 'application/vnd.google-apps.folder') {
-                                const subDocument = {
-                                    id: subFile.id,
-                                    name: subFile.name,
-                                    size: parseInt(subFile.size) || 0,
-                                    type: subFile.mimeType,
-                                    folder: file.id,
-                                    uploadedBy: 'Google Drive',
-                                    uploadedAt: subFile.createdTime,
-                                    tags: [],
-                                    description: `Archivo desde Google Drive: ${subFile.name}`,
-                                    googleId: subFile.id,
-                                    isGoogleDrive: true
-                                };
-                                newDocuments.push(subDocument);
-                            }
-                        }
-                    }
-                } else {
-                    // Es un archivo
-                    const document = {
-                        id: file.id,
-                        name: file.name,
-                        size: parseInt(file.size) || 0,
-                        type: file.mimeType,
-                        folder: parentId,
-                        uploadedBy: 'Google Drive',
-                        uploadedAt: file.createdTime,
-                        tags: [],
-                        description: `Archivo desde Google Drive: ${file.name}`,
-                        googleId: file.id,
-                        isGoogleDrive: true
-                    };
-                    newDocuments.push(document);
-                }
-            }
-
-            // Actualizar estado
-            setFolders(newFolders);
-            setDocuments(newDocuments);
-            setExpandedFolders(new Set(['root', ...newFolders.filter(f => f.parent === 'root').map(f => f.id)]));
-            
-            console.log(`Cargadas ${newFolders.length} carpetas y ${newDocuments.length} archivos`);
+            console.log(`Cargadas ${allFolders.length} carpetas y ${allDocuments.length} archivos`);
 
         } catch (error) {
             console.error('Error loading folder structure:', error);
@@ -333,7 +468,7 @@ const GestionDocumentosPage = () => {
 
                 // Inicializar GAPI client
                 await new Promise((resolve, reject) => {
-                    window.gapi.load('client', {
+                    window.gapi.load('client:auth2', {
                         callback: resolve,
                         onerror: reject
                     });
@@ -411,7 +546,16 @@ const GestionDocumentosPage = () => {
     // Obtener documentos de la carpeta seleccionada
     const getCurrentFolderDocuments = () => {
         return documents.filter(doc => {
-            const matchesFolder = selectedFolder === 'root' || doc.folder === selectedFolder;
+            // Si estamos en root, mostrar archivos de root
+            if (selectedFolder === 'root') {
+                return doc.folder === 'root';
+            }
+
+            // Para otras carpetas, buscar por el ID de Google Drive
+            const selectedFolderData = folders.find(f => f.id === selectedFolder);
+            const matchesFolder = doc.folder === selectedFolder ||
+                (selectedFolderData && doc.folder === selectedFolderData.googleId);
+
             const matchesSearch = searchTerm === '' ||
                 doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 doc.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -578,6 +722,30 @@ const GestionDocumentosPage = () => {
                             <Grid size={16} />
                         </button>
                     </div>
+
+                    {/* Botones de añadir - NUEVOS */}
+                    {isGoogleAuth && (
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setShowUploadModal(true)}
+                                disabled={isUploading}
+                                className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 cursor-pointer disabled:opacity-50"
+                                title="Subir archivos"
+                            >
+                                <Upload size={16} />
+                                Subir Archivos
+                            </button>
+                            <button
+                                onClick={() => setShowCreateFolderModal(true)}
+                                disabled={isUploading}
+                                className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
+                                title="Crear carpeta"
+                            >
+                                <Plus size={16} />
+                                Nueva Carpeta
+                            </button>
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-4">
                     {/* Estado de Google Drive */}
@@ -772,6 +940,178 @@ const GestionDocumentosPage = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Modal para subir archivos - NUEVO */}
+            {showUploadModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-panel rounded-lg w-full max-w-lg">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-primary">Subir Archivos a Google Drive</h3>
+                                <button onClick={() => setShowUploadModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                {/* Información de la carpeta de destino */}
+                                <div className="p-3 bg-blue-50 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                        <Folder size={16} className="text-blue-500" />
+                                        <span className="text-sm text-blue-800 font-medium">
+                                            Destino: {(() => {
+                                                const getBreadcrumb = (folderId) => {
+                                                    const folder = folders.find(f => f.id === folderId);
+                                                    if (!folder) return 'PLANTAS';
+                                                    if (folder.parent && folder.parent !== 'root') {
+                                                        return getBreadcrumb(folder.parent) + ' > ' + folder.name;
+                                                    }
+                                                    return folder.name;
+                                                };
+                                                return getBreadcrumb(selectedFolder);
+                                            })()}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Selector de archivos */}
+                                <div>
+                                    <label className="block text-sm font-medium text-primary mb-2">
+                                        Seleccionar archivos
+                                    </label>
+                                    <input
+                                        type="file"
+                                        multiple
+                                        onChange={(e) => setUploadForm(prev => ({ ...prev, files: Array.from(e.target.files) }))}
+                                        className="w-full p-3 border border-custom rounded-lg bg-panel text-primary"
+                                    />
+                                    {uploadForm.files.length > 0 && (
+                                        <div className="mt-2">
+                                            <p className="text-sm text-secondary mb-1">
+                                                {uploadForm.files.length} archivo(s) seleccionado(s):
+                                            </p>
+                                            <div className="max-h-32 overflow-y-auto">
+                                                {uploadForm.files.map((file, index) => (
+                                                    <div key={index} className="text-xs text-primary p-1 bg-header-table rounded mb-1">
+                                                        {file.name} ({formatFileSize(file.size)})
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Botones */}
+                                <div className="flex justify-end gap-3 pt-4 border-t border-custom">
+                                    <button
+                                        onClick={() => setShowUploadModal(false)}
+                                        className="px-4 py-2 text-secondary hover-bg rounded cursor-pointer"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={() => handleFileUpload(uploadForm.files)}
+                                        disabled={uploadForm.files.length === 0 || isUploading}
+                                        className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 cursor-pointer disabled:opacity-50"
+                                    >
+                                        {isUploading ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Subiendo...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload size={16} />
+                                                Subir Archivos
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal para crear carpeta - NUEVO */}
+            {showCreateFolderModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-panel rounded-lg w-full max-w-md">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-primary">Crear Nueva Carpeta</h3>
+                                <button onClick={() => setShowCreateFolderModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                {/* Información de la carpeta padre */}
+                                <div className="p-3 bg-blue-50 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                        <Folder size={16} className="text-blue-500" />
+                                        <span className="text-sm text-blue-800 font-medium">
+                                            Crear en: {(() => {
+                                                const getBreadcrumb = (folderId) => {
+                                                    const folder = folders.find(f => f.id === folderId);
+                                                    if (!folder) return 'PLANTAS';
+                                                    if (folder.parent && folder.parent !== 'root') {
+                                                        return getBreadcrumb(folder.parent) + ' > ' + folder.name;
+                                                    }
+                                                    return folder.name;
+                                                };
+                                                return getBreadcrumb(selectedFolder);
+                                            })()}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Nombre de la carpeta */}
+                                <div>
+                                    <label className="block text-sm font-medium text-primary mb-2">
+                                        Nombre de la carpeta
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={folderForm.name}
+                                        onChange={(e) => setFolderForm(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Ingresa el nombre de la carpeta"
+                                        className="w-full p-3 border border-custom rounded-lg bg-panel text-primary"
+                                        autoFocus
+                                    />
+                                </div>
+
+                                {/* Botones */}
+                                <div className="flex justify-end gap-3 pt-4 border-t border-custom">
+                                    <button
+                                        onClick={() => setShowCreateFolderModal(false)}
+                                        className="px-4 py-2 text-secondary hover-bg rounded cursor-pointer"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleCreateFolder}
+                                        disabled={!folderForm.name.trim() || isUploading}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
+                                    >
+                                        {isUploading ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Creando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Plus size={16} />
+                                                Crear Carpeta
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal de detalles del documento */}
             {showDocumentModal && selectedDocument && (
