@@ -106,30 +106,44 @@ const AlarmsTable = () => {
         });
     };
 
-    // Badge de severidad
-    const getSeverityBadge = (severity) => {
-        const severityConfig = {
-            critical: {
-                label: 'Crítica',
-                color: 'bg-red-500 text-white'
-            },
-            warning: {
-                label: 'Advertencia',
-                color: 'bg-yellow-500 text-white'
-            },
-            info: {
-                label: 'Información',
-                color: 'bg-blue-500 text-white'
-            }
-        };
+    // // Badge de severidad
+    // const getSeverityBadge = (severity) => {
+    //     const severityConfig = {
+    //         critical: {
+    //             label: 'Crítica',
+    //             color: 'bg-red-500 text-white'
+    //         },
+    //         warning: {
+    //             label: 'Advertencia',
+    //             color: 'bg-yellow-500 text-white'
+    //         },
+    //         info: {
+    //             label: 'Información',
+    //             color: 'bg-blue-500 text-white'
+    //         }
+    //     };
 
-        const config = severityConfig[severity] || severityConfig.info;
+    //     const config = severityConfig[severity] || severityConfig.info;
 
-        return (
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-                {config.label}
-            </span>
-        );
+    //     return (
+    //         <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
+    //             {config.label}
+    //         </span>
+    //     );
+    // };
+
+    // Función para obtener el estilo de fondo de fila según severidad
+    const getRowBackgroundClass = (severity) => {
+        switch (severity) {
+            case 'critical':
+                return 'row-critical';
+            case 'warning':
+                return 'row-warning';
+            case 'info':
+                return 'row-info';
+            default:
+                return 'hover-bg';
+        }
     };
 
     if (loading) {
@@ -166,14 +180,14 @@ const AlarmsTable = () => {
                         </thead>
                         <tbody>
                             {alarms.map((alarm) => (
-                                <tr key={alarm.id} className="border-b border-custom hover-bg">
+                                <tr key={alarm.id} className={`border-b border-custom ${getRowBackgroundClass(alarm.severity)}`}>
                                     <td className="p-4">
                                         <div className="flex items-center gap-2">
                                             <div className="flex flex-col">
                                                 <span className="font-medium text-primary">{alarm.equipment}</span>
                                                 <span className="text-xs text-secondary">{alarm.plant}</span>
                                             </div>
-                                            {getSeverityBadge(alarm.severity)}
+                                            {/* {getSeverityBadge(alarm.severity)} */}
                                         </div>
                                     </td>
 

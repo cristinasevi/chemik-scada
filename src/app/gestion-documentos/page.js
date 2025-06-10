@@ -723,28 +723,17 @@ const GestionDocumentosPage = () => {
                         </button>
                     </div>
 
-                    {/* Botones de añadir - NUEVOS */}
+                    {/* Solo botón de subir archivos */}
                     {isGoogleAuth && (
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setShowUploadModal(true)}
-                                disabled={isUploading}
-                                className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 cursor-pointer disabled:opacity-50"
-                                title="Subir archivos"
-                            >
-                                <Upload size={16} />
-                                Subir Archivos
-                            </button>
-                            <button
-                                onClick={() => setShowCreateFolderModal(true)}
-                                disabled={isUploading}
-                                className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
-                                title="Crear carpeta"
-                            >
-                                <Plus size={16} />
-                                Nueva Carpeta
-                            </button>
-                        </div>
+                        <button
+                            onClick={() => setShowUploadModal(true)}
+                            disabled={isUploading}
+                            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
+                            title="Subir archivos"
+                        >
+                            <Upload size={16} />
+                            Subir Archivos
+                        </button>
                     )}
                 </div>
                 <div className="flex items-center gap-4">
@@ -752,17 +741,12 @@ const GestionDocumentosPage = () => {
                     <div className="flex items-center gap-2">
                         {isGoogleAuth ? (
                             <>
-                                <div className="flex items-center gap-2 px-3 py-2 text-sm bg-green-100 text-green-800 rounded">
-                                    <Cloud size={14} />
-                                    Google Drive Conectado
-                                </div>
                                 <button
                                     onClick={loadGoogleDriveFiles}
-                                    className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
+                                    className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 cursor-pointer"
                                     title="Sincronizar"
                                 >
                                     <RefreshCw size={14} />
-                                    Sync
                                 </button>
                                 <button
                                     onClick={signOutFromGoogle}
@@ -792,10 +776,28 @@ const GestionDocumentosPage = () => {
                     <div className="p-4">
                         <div className="flex items-center justify-between mb-3">
                             <div className="text-sm font-medium text-secondary">Carpetas</div>
-                            {isGoogleAuth && (
-                                <Cloud size={16} className="text-blue-500" title="Sincronizado con Google Drive" />
-                            )}
+                            <div className="flex items-center gap-2">
+                                {isGoogleAuth && (
+                                    <Cloud size={16} className="text-blue-500" title="Sincronizado con Google Drive" />
+                                )}
+                            </div>
                         </div>
+                        
+                        {/* Botón Nueva Carpeta reubicado aquí */}
+                        {isGoogleAuth && (
+                            <div className="mb-3">
+                                <button
+                                    onClick={() => setShowCreateFolderModal(true)}
+                                    disabled={isUploading}
+                                    className="flex items-center gap-2 w-full px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50 text-sm"
+                                    title="Crear carpeta"
+                                >
+                                    <Plus size={14} />
+                                    Nueva Carpeta
+                                </button>
+                            </div>
+                        )}
+                        
                         {renderFolderTree('root')}
                     </div>
                 </div>
@@ -871,7 +873,7 @@ const GestionDocumentosPage = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => handleDownload(document)}
-                                                        className="p-2 text-green-500 hover-badge-blue rounded cursor-pointer"
+                                                        className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
                                                         title="Descargar"
                                                     >
                                                         <Download size={14} />
@@ -941,9 +943,9 @@ const GestionDocumentosPage = () => {
                 </div>
             </div>
 
-            {/* Modal para subir archivos - NUEVO */}
+            {/* Modal para subir archivos */}
             {showUploadModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-panel rounded-lg w-full max-w-lg">
                         <div className="p-6">
                             <div className="flex items-center justify-between mb-4">
@@ -1012,17 +1014,16 @@ const GestionDocumentosPage = () => {
                                     <button
                                         onClick={() => handleFileUpload(uploadForm.files)}
                                         disabled={uploadForm.files.length === 0 || isUploading}
-                                        className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 cursor-pointer disabled:opacity-50"
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
                                     >
                                         {isUploading ? (
                                             <>
                                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                Subiendo...
+                                                Cargando...
                                             </>
                                         ) : (
                                             <>
-                                                <Upload size={16} />
-                                                Subir Archivos
+                                                Aceptar
                                             </>
                                         )}
                                     </button>
@@ -1033,9 +1034,9 @@ const GestionDocumentosPage = () => {
                 </div>
             )}
 
-            {/* Modal para crear carpeta - NUEVO */}
+            {/* Modal para crear carpeta */}
             {showCreateFolderModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-panel rounded-lg w-full max-w-md">
                         <div className="p-6">
                             <div className="flex items-center justify-between mb-4">
@@ -1101,8 +1102,7 @@ const GestionDocumentosPage = () => {
                                             </>
                                         ) : (
                                             <>
-                                                <Plus size={16} />
-                                                Crear Carpeta
+                                                Crear
                                             </>
                                         )}
                                     </button>
@@ -1115,7 +1115,7 @@ const GestionDocumentosPage = () => {
 
             {/* Modal de detalles del documento */}
             {showDocumentModal && selectedDocument && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-panel rounded-lg w-full max-w-2xl">
                         <div className="p-6">
                             <div className="flex items-center justify-between mb-4">
