@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
-    Plus, X, MoreVertical, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw, AlertCircle,
+    Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle,
     CheckCircle, XCircle, AlertTriangle, Pencil, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -104,15 +104,13 @@ const GestionDocumentosPage = () => {
 
         const setupRealTimeListeners = async () => {
             try {
-                // Listener para cambios en documentos
                 documentsSubscription = supabase
-                    .channel('documents_realtime')
+                    .channel('documents_realtime_channel')
                     .on('postgres_changes', {
                         event: '*',
                         schema: 'public',
                         table: 'documents'
                     }, (payload) => {
-                        console.log('Cambio en documentos:', payload);
 
                         if (payload.eventType === 'INSERT') {
                             setDocuments(prev => {
@@ -135,15 +133,13 @@ const GestionDocumentosPage = () => {
                     })
                     .subscribe();
 
-                // Listener para cambios en carpetas
                 foldersSubscription = supabase
-                    .channel('folders_realtime')
+                    .channel('folders_realtime_channel')
                     .on('postgres_changes', {
                         event: '*',
                         schema: 'public',
                         table: 'folders'
                     }, (payload) => {
-                        console.log('Cambio en carpetas:', payload);
 
                         if (payload.eventType === 'INSERT') {
                             setFolders(prev => {
@@ -183,15 +179,18 @@ const GestionDocumentosPage = () => {
 
             } catch (error) {
                 console.error('Error setting up real-time listeners:', error);
+                // Continuar sin real-time si hay problemas
             }
         };
 
         setupRealTimeListeners();
 
         return () => {
+
             if (documentsSubscription) {
                 supabase.removeChannel(documentsSubscription);
             }
+
             if (foldersSubscription) {
                 supabase.removeChannel(foldersSubscription);
             }
@@ -408,15 +407,11 @@ const GestionDocumentosPage = () => {
 
             showNotification('Carpeta renombrada exitosamente', 'success');
 
-            // Refresh silencioso después de 1 segundo para dar tiempo al tiempo real
-            setTimeout(() => {
-                refreshData(true);
-            }, 1000);
+            refreshData(true);
 
         } catch (error) {
             console.error('Error renaming folder:', error);
             showNotification('Error al renombrar carpeta: ' + error.message, 'error');
-            // En caso de error, hacer refresh inmediato
             await refreshData(true);
         } finally {
             setIsUploading(false);
@@ -461,7 +456,6 @@ const GestionDocumentosPage = () => {
                     .remove([`${folderPath}/.emptyFolderPlaceholder`]);
             }
 
-            // Refresh automático después de la operación
             await refreshData(true);
 
             showNotification('Carpeta eliminada exitosamente', 'success');
@@ -524,12 +518,23 @@ const GestionDocumentosPage = () => {
         const folder = folders.find(f => f.id === folderId);
         if (!folder) return '';
 
-        if (folder.parent_id && folder.parent_id !== 'root') {
-            const parentPath = getFolderStoragePath(folder.parent_id);
-            return parentPath ? `${parentPath}/${folder.name}` : folder.name;
-        }
+        // Construir la ruta de forma iterativa en lugar de recursiva
+        const buildPath = (currentFolderId) => {
+            const pathParts = [];
+            let currentId = currentFolderId;
 
-        return folder.name;
+            while (currentId && currentId !== 'root') {
+                const currentFolder = folders.find(f => f.id === currentId);
+                if (!currentFolder) break;
+
+                pathParts.unshift(currentFolder.name);
+                currentId = currentFolder.parent_id;
+            }
+
+            return pathParts.join('/');
+        };
+
+        return buildPath(folderId);
     };
 
     const uploadFileToSupabase = async (file, folderId = 'root') => {
@@ -610,8 +615,10 @@ const GestionDocumentosPage = () => {
 
     const createFolderInSupabase = async (folderName, parentId = 'root') => {
         try {
+            const folderId = crypto.randomUUID();
+
             const folderData = {
-                id: `folder_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+                id: folderId,
                 name: folderName,
                 parent_id: parentId === 'root' ? null : parentId,
                 description: folderForm.description || '',
@@ -627,9 +634,21 @@ const GestionDocumentosPage = () => {
                 .select()
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                throw error;
+            }
 
-            const folderStoragePath = getFolderStoragePath(folderData.id);
+            let folderStoragePath = '';
+
+            if (parentId !== 'root') {
+                // Construir la ruta del padre manualmente
+                const parentPath = getFolderStoragePath(parentId);
+                folderStoragePath = parentPath ? `${parentPath}/${folderName}` : folderName;
+            } else {
+                folderStoragePath = folderName;
+            }
+
+
             if (folderStoragePath) {
                 await createFolderInStorage(folderStoragePath);
             }
@@ -718,12 +737,6 @@ const GestionDocumentosPage = () => {
             try {
                 await loadFoldersFromSupabase();
                 await loadDocumentsFromSupabase();
-
-                // Solo sincronizar al inicio si es necesario
-                const shouldSync = documents.length === 0 && folders.length === 0;
-                if (shouldSync) {
-                    await syncAllFromStorage();
-                }
             } catch (error) {
                 console.error('Error initializing data:', error);
                 showNotification('Error al cargar datos: ' + error.message, 'error');
@@ -741,10 +754,9 @@ const GestionDocumentosPage = () => {
     };
 
     useEffect(() => {
-        // Auto-refresh cada 60 segundos (aumentamos el tiempo)
         const autoRefreshInterval = setInterval(() => {
             refreshData(true); // Silent refresh
-        }, 60000); // 60 segundos en lugar de 30
+        }, 60000);
 
         return () => {
             clearInterval(autoRefreshInterval);
@@ -754,7 +766,6 @@ const GestionDocumentosPage = () => {
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (!document.hidden) {
-                // Refresh cuando la pestaña vuelve a estar activa
                 refreshData(true);
             }
         };
@@ -1208,7 +1219,6 @@ const GestionDocumentosPage = () => {
                         className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50 cursor-pointer"
                     >
                         <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                        <span className="hidden sm:block">Actualizar</span>
                     </button>
                 </div>
             </div>
