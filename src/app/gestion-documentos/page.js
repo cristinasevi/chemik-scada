@@ -1,14 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
-    Plus, X, MoreVertical, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw } from 'lucide-react';
+import {
+    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
+    Plus, X, MoreVertical, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw, AlertCircle,
+    CheckCircle, XCircle, AlertTriangle
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const GestionDocumentosPage = () => {
     const { user, isAdmin } = useAuth();
 
-    // Estados principales
     const [documents, setDocuments] = useState([]);
     const [folders, setFolders] = useState([]);
     const [expandedFolders, setExpandedFolders] = useState(new Set(['root']));
@@ -22,104 +29,11 @@ const GestionDocumentosPage = () => {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState(null);
     const [selectedDocuments, setSelectedDocuments] = useState(new Set());
-
-    // Estados para Google Drive
-    const [isGoogleAuth, setIsGoogleAuth] = useState(false);
-    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-    const [googleAuthInstance, setGoogleAuthInstance] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
-    const [authToken, setAuthToken] = useState(null);
-
-    // Configuración de Google Drive API
-    const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-    const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
-    const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-    const SCOPES = 'https://www.googleapis.com/auth/drive';
-
-    // Clave para sessionStorage
-    const STORAGE_KEY = 'google_drive_session';
-
-    // Guardar token con persistencia temporal
-    const saveAuthToken = (token) => {
-        setAuthToken(token);
-        console.log('✅ Token guardado en memoria');
-
-        // Intentar guardar en sessionStorage para persistencia durante la sesión
-        try {
-            if (typeof window !== 'undefined' && window.sessionStorage) {
-                const sessionData = {
-                    token: token,
-                    timestamp: Date.now(),
-                    expiresIn: 3600000 // 1 hora en milisegundos
-                };
-                window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
-                console.log('✅ Token guardado en sessionStorage');
-            }
-        } catch (error) {
-            console.log('⚠️ SessionStorage no disponible, solo memoria');
-        }
-    };
-
-    // Cargar token al inicio
-    const loadStoredToken = () => {
-        try {
-            if (typeof window !== 'undefined' && window.sessionStorage) {
-                const stored = window.sessionStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    const sessionData = JSON.parse(stored);
-                    const now = Date.now();
-
-                    // Verificar si el token no ha expirado (1 hora)
-                    if (now - sessionData.timestamp < sessionData.expiresIn) {
-                        console.log('🔄 Token encontrado en sessionStorage');
-                        setAuthToken(sessionData.token);
-                        return sessionData.token;
-                    } else {
-                        console.log('⏰ Token en storage expirado, limpiando...');
-                        window.sessionStorage.removeItem(STORAGE_KEY);
-                    }
-                }
-            }
-        } catch (error) {
-            console.log('⚠️ Error cargando token del storage:', error);
-        }
-        return null;
-    };
-
-    // Limpiar token almacenado
-    const clearStoredToken = () => {
-        setAuthToken(null);
-        try {
-            if (typeof window !== 'undefined' && window.sessionStorage) {
-                window.sessionStorage.removeItem(STORAGE_KEY);
-                console.log('🗑️ Token limpiado del sessionStorage');
-            }
-        } catch (error) {
-            console.log('⚠️ Error limpiando storage');
-        }
-    };
-
-    // Verificar si el token sigue siendo válido
-    const isTokenValid = async (token) => {
-        try {
-            const response = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
-            return response.ok;
-        } catch (error) {
-            console.error('Error verificando token:', error);
-            return false;
-        }
-    };
-
-    // Configurar GAPI con token existente
-    const setGapiToken = (token) => {
-        if (window.gapi && window.gapi.auth) {
-            window.gapi.auth.setToken({
-                access_token: token
-            });
-            return true;
-        }
-        return false;
-    };
+    const [syncStatus, setSyncStatus] = useState({ syncing: false, message: '' });
+    const [notifications, setNotifications] = useState([]);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [confirmAction, setConfirmAction] = useState(null);
 
     // Estados para formularios
     const [uploadForm, setUploadForm] = useState({
@@ -138,134 +52,552 @@ const GestionDocumentosPage = () => {
         category: ''
     });
 
-    // Función para intentar login automático
-    const tryAutoLogin = async () => {
-        // Primero intentar cargar token almacenado si no hay uno en memoria
-        let tokenToUse = authToken;
-        if (!tokenToUse) {
-            tokenToUse = loadStoredToken();
+    // Sistema de notificaciones
+    const showNotification = (message, type = 'success') => {
+        const id = Date.now();
+        const notification = { id, message, type };
+
+        setNotifications(prev => [...prev, notification]);
+
+        // Auto-remover después de 4 segundos
+        setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== id));
+        }, 4000);
+    };
+
+    const removeNotification = (id) => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+    };
+
+    // Sistema de confirmación
+    const showConfirm = (message, onConfirm) => {
+        setConfirmAction({ message, onConfirm });
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirm = () => {
+        if (confirmAction?.onConfirm) {
+            confirmAction.onConfirm();
         }
+        setShowConfirmModal(false);
+        setConfirmAction(null);
+    };
 
-        if (!tokenToUse) {
-            console.log('No hay token para auto-login');
-            loadDefaultStructure();
-            return;
-        }
+    const handleCancelConfirm = () => {
+        setShowConfirmModal(false);
+        setConfirmAction(null);
+    };
 
-        console.log('🔄 Intentando auto-login...');
-        setIsGoogleLoading(true);
+    // Configurar listeners en tiempo real para Supabase
+    useEffect(() => {
+        // Listener para cambios en documentos
+        const documentsSubscription = supabase
+            .channel('documents_changes')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'documents'
+            }, (payload) => {
+                console.log('Cambio en documentos:', payload);
 
-        try {
-            // Verificar si el token es válido
-            const isValid = await isTokenValid(tokenToUse);
+                if (payload.eventType === 'INSERT') {
+                    setDocuments(prev => [payload.new, ...prev]);
+                    showNotification('Nuevo documento agregado', 'info');
+                } else if (payload.eventType === 'UPDATE') {
+                    setDocuments(prev => prev.map(doc =>
+                        doc.id === payload.new.id ? payload.new : doc
+                    ));
+                    showNotification('Documento actualizado', 'info');
+                } else if (payload.eventType === 'DELETE') {
+                    setDocuments(prev => prev.filter(doc => doc.id !== payload.old.id));
+                    showNotification('Documento eliminado', 'info');
+                }
+            })
+            .subscribe();
 
-            if (isValid) {
-                console.log('✅ Token válido, configurando GAPI...');
+        // Listener para cambios en carpetas
+        const foldersSubscription = supabase
+            .channel('folders_changes')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'folders'
+            }, (payload) => {
+                console.log('Cambio en carpetas:', payload);
 
-                // Configurar GAPI con el token
-                if (setGapiToken(tokenToUse)) {
-                    // Asegurar que el token esté en memoria si vino del storage
-                    if (!authToken) {
-                        setAuthToken(tokenToUse);
+                if (payload.eventType === 'INSERT') {
+                    setFolders(prev => [...prev, payload.new]);
+                    showNotification('Nueva carpeta creada', 'info');
+                } else if (payload.eventType === 'UPDATE') {
+                    setFolders(prev => prev.map(folder =>
+                        folder.id === payload.new.id ? payload.new : folder
+                    ));
+                    showNotification('Carpeta actualizada', 'info');
+                } else if (payload.eventType === 'DELETE') {
+                    setFolders(prev => prev.filter(folder => folder.id !== payload.old.id));
+                    showNotification('Carpeta eliminada', 'info');
+
+                    // Si era la carpeta seleccionada, volver a root
+                    if (selectedFolder === payload.old.id) {
+                        setSelectedFolder('root');
                     }
 
-                    setIsGoogleAuth(true);
-                    setIsGoogleLoading(false);
-                    await loadGoogleDriveFilesWithToken(tokenToUse);
-                    console.log('✅ Auto-login exitoso');
-                } else {
-                    throw new Error('No se pudo configurar GAPI');
+                    // Remover de carpetas expandidas
+                    setExpandedFolders(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(payload.old.id);
+                        return newSet;
+                    });
                 }
-            } else {
-                console.log('❌ Token expirado, requiere nueva autenticación');
-                clearStoredToken();
-                setIsGoogleAuth(false);
-                setIsGoogleLoading(false);
-                loadDefaultStructure();
+            })
+            .subscribe();
+
+        // Cleanup al desmontar el componente
+        return () => {
+            supabase.removeChannel(documentsSubscription);
+            supabase.removeChannel(foldersSubscription);
+        };
+    }, [selectedFolder]);
+
+    const isSystemFile = (fileName) => {
+        const systemFiles = ['.emptyFolderPlaceholder', '.keep', '.gitkeep'];
+        return systemFiles.includes(fileName);
+    };
+
+    // Función para sincronizar archivos Y CARPETAS huérfanos
+    const syncAllFromStorage = async () => {
+        try {
+            setSyncStatus({ syncing: true, message: 'Sincronizando con Storage...' });
+
+            // Limpiar datos existentes
+            await supabase.from('documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            await supabase.from('folders').delete().neq('id', 'root');
+
+            const allFiles = [];
+            const allFolders = [];
+
+            const processFolder = async (folderPath = '', parentFolderId = 'root', level = 0) => {
+                const { data: files, error } = await supabase.storage
+                    .from('documents')
+                    .list(folderPath, { limit: 1000 });
+
+                if (error) {
+                    console.error(`Error listando ${folderPath}:`, error);
+                    return;
+                }
+
+                for (const file of files) {
+                    const fullPath = folderPath ? `${folderPath}/${file.name}` : file.name;
+
+                    if (file.metadata && !isSystemFile(file.name)) {
+                        // Es un archivo
+                        allFiles.push({
+                            name: file.name,
+                            path: fullPath,
+                            size: file.metadata.size,
+                            lastModified: file.updated_at || file.created_at,
+                            parentFolderId: parentFolderId
+                        });
+                    } else if (!file.metadata && !isSystemFile(file.name)) {
+                        // Es una carpeta
+                        const folderUniqueId = fullPath || file.name;
+
+                        allFolders.push({
+                            id: folderUniqueId,
+                            name: file.name,
+                            storagePath: fullPath,
+                            parentId: parentFolderId,
+                            lastModified: file.updated_at || file.created_at,
+                            level: level + 1
+                        });
+
+                        // Procesar subcarpetas
+                        await processFolder(fullPath, folderUniqueId, level + 1);
+                    }
+                }
+            };
+
+            await processFolder();
+
+            // Insertar carpetas (ordenadas por nivel)
+            allFolders.sort((a, b) => a.level - b.level);
+
+            for (const folder of allFolders) {
+                try {
+                    let actualParentId = null;
+                    if (folder.parentId !== 'root') {
+                        actualParentId = folder.parentId;
+                    }
+
+                    const folderData = {
+                        id: folder.id,
+                        name: folder.name,
+                        parent_id: actualParentId,
+                        description: 'Sincronizado desde Storage',
+                        category: '',
+                        plant: '',
+                        created_at: folder.lastModified || new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    await supabase
+                        .from('folders')
+                        .insert([folderData]);
+                } catch (error) {
+                    console.error(`Error registrando carpeta ${folder.name}:`, error);
+                }
             }
+
+            // Insertar archivos
+            for (const file of allFiles) {
+                try {
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('documents')
+                        .getPublicUrl(file.path);
+
+                    const pathParts = file.path.split('/');
+                    let folder_id = 'root';
+
+                    if (pathParts.length > 1) {
+                        const folderPath = pathParts.slice(0, -1).join('/');
+                        folder_id = folderPath;
+                    }
+
+                    const documentData = {
+                        name: file.name,
+                        original_name: file.name,
+                        file_path: file.path,
+                        file_url: publicUrl,
+                        size: file.size || 0,
+                        mime_type: getMimeTypeFromExtension(file.name),
+                        folder_id: folder_id,
+                        uploaded_by: 'Sistema (sincronizado)',
+                        description: 'Sincronizado desde Storage',
+                        tags: [],
+                        category: '',
+                        plant: '',
+                        created_at: file.lastModified || new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    await supabase
+                        .from('documents')
+                        .insert([documentData]);
+                } catch (error) {
+                    console.error(`Error registrando archivo ${file.name}:`, error);
+                }
+            }
+
+            setSyncStatus({ syncing: false, message: '' });
+            showNotification('Sincronización completada', 'success');
+
         } catch (error) {
-            console.error('❌ Error en auto-login:', error);
-            clearStoredToken();
-            setIsGoogleAuth(false);
-            setIsGoogleLoading(false);
-            loadDefaultStructure();
+            console.error('Error en sincronización:', error);
+            setSyncStatus({ syncing: false, message: '' });
+            showNotification('Error en sincronización: ' + error.message, 'error');
         }
     };
 
-    // Función para cargar estructura por defecto
-    const loadDefaultStructure = () => {
-        setFolders([{
-            id: 'root',
-            name: 'PLANTAS',
-            parent: null,
-            children: [],
-            type: 'root'
-        }]);
-        setDocuments([]);
-        setExpandedFolders(new Set(['root']));
-        setSelectedFolder('root');
-        setLoading(false);
+    const getMimeTypeFromExtension = (filename) => {
+        const ext = filename.split('.').pop()?.toLowerCase();
+        const mimeTypes = {
+            'pdf': 'application/pdf',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'txt': 'text/plain',
+            'csv': 'text/csv'
+        };
+        return mimeTypes[ext] || 'application/octet-stream';
     };
 
-    // Función para configurar Google Identity
-    const initGoogleIdentity = () => {
+    const loadFoldersFromSupabase = async () => {
         try {
-            console.log('=== CONFIGURANDO GOOGLE IDENTITY ===');
+            const { data, error } = await supabase
+                .from('folders')
+                .select('*')
+                .order('name');
 
-            if (!window.google?.accounts?.oauth2) {
-                console.error('Google Identity Services no disponible');
-                loadDefaultStructure();
+            if (error) throw error;
+
+            if (!data || data.length === 0) {
+                await createInitialStructure();
                 return;
             }
 
-            // Configurar el cliente OAuth2
-            const client = window.google.accounts.oauth2.initTokenClient({
-                client_id: GOOGLE_CLIENT_ID,
-                scope: SCOPES,
-                callback: async (response) => {
-                    console.log('Token recibido:', !!response.access_token);
-                    if (response.access_token) {
-                        // Guardar token con persistencia
-                        saveAuthToken(response.access_token);
-
-                        // Configurar GAPI con el token
-                        setGapiToken(response.access_token);
-
-                        // Actualizar estados
-                        setIsGoogleAuth(true);
-                        setIsGoogleLoading(false);
-
-                        // Cargar archivos con el token ya guardado
-                        try {
-                            await loadGoogleDriveFilesWithToken(response.access_token);
-                        } catch (error) {
-                            console.error('Error cargando archivos después del login:', error);
-                            setIsGoogleAuth(false);
-                            clearStoredToken();
-                            loadDefaultStructure();
-                        }
-                    }
-                },
-                error_callback: (error) => {
-                    console.error('Error en callback:', error);
-                    setIsGoogleAuth(false);
-                    setIsGoogleLoading(false);
-                    clearStoredToken();
-                    loadDefaultStructure();
-                }
-            });
-
-            setGoogleAuthInstance(client);
-            console.log('✅ Google Identity configurado correctamente');
-
-            // Intentar auto-login (ahora verificará storage automáticamente)
-            tryAutoLogin();
-
+            setFolders(data);
         } catch (error) {
-            console.error('Error configurando Google Identity:', error);
-            loadDefaultStructure();
+            console.error('Error loading folders:', error);
+            await createInitialStructure();
         }
     };
+
+    const createInitialStructure = async () => {
+        try {
+            const initialFolder = {
+                id: 'root',
+                name: 'PLANTAS',
+                parent_id: null,
+                description: 'Carpeta raíz para documentos de plantas',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('folders')
+                .upsert([initialFolder]);
+
+            if (error) throw error;
+
+            setFolders([initialFolder]);
+        } catch (error) {
+            console.error('Error creating initial structure:', error);
+            setFolders([{
+                id: 'root',
+                name: 'PLANTAS',
+                parent_id: null,
+                description: 'Carpeta raíz para documentos de plantas',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }]);
+        }
+    };
+
+    const loadDocumentsFromSupabase = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('documents')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            setDocuments(data || []);
+        } catch (error) {
+            console.error('Error loading documents:', error);
+            setDocuments([]);
+        }
+    };
+
+    const createFolderInStorage = async (folderPath) => {
+        try {
+            const placeholderFile = new Blob([''], { type: 'text/plain' });
+            const placeholderPath = `${folderPath}/.emptyFolderPlaceholder`;
+
+            const { error } = await supabase.storage
+                .from('documents')
+                .upload(placeholderPath, placeholderFile);
+
+            if (error && !error.message.includes('already exists')) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error creating folder in storage:', error);
+        }
+    };
+
+    const getFolderStoragePath = (folderId) => {
+        if (folderId === 'root') return '';
+
+        const folder = folders.find(f => f.id === folderId);
+        if (!folder) return '';
+
+        if (folder.parent_id && folder.parent_id !== 'root') {
+            const parentPath = getFolderStoragePath(folder.parent_id);
+            return parentPath ? `${parentPath}/${folder.name}` : folder.name;
+        }
+
+        return folder.name;
+    };
+
+    const uploadFileToSupabase = async (file, folderId = 'root') => {
+        try {
+            let fileName = file.name;
+            let filePath;
+
+            if (folderId === 'root') {
+                filePath = fileName;
+            } else {
+                const folderPath = getFolderStoragePath(folderId);
+                filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+            }
+
+            const pathParts = filePath.split('/');
+            const folderToCheck = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+
+            const { data: existingFile } = await supabase.storage
+                .from('documents')
+                .list(folderToCheck, {
+                    search: fileName
+                });
+
+            if (existingFile && existingFile.length > 0) {
+                const fileExt = file.name.split('.').pop();
+                const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.'));
+                fileName = `${nameWithoutExt}_${Date.now()}.${fileExt}`;
+
+                if (folderId === 'root') {
+                    filePath = fileName;
+                } else {
+                    const folderPath = getFolderStoragePath(folderId);
+                    filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+                }
+            }
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('documents')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('documents')
+                .getPublicUrl(filePath);
+
+            const documentData = {
+                name: file.name,
+                original_name: file.name,
+                file_path: filePath,
+                file_url: publicUrl,
+                size: file.size,
+                mime_type: file.type,
+                folder_id: folderId,
+                uploaded_by: user?.username || 'Anónimo',
+                description: uploadForm.description || '',
+                tags: uploadForm.tags || [],
+                category: uploadForm.category || '',
+                plant: uploadForm.plant || '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { data: documentRecord, error: dbError } = await supabase
+                .from('documents')
+                .insert([documentData])
+                .select()
+                .single();
+
+            if (dbError) throw dbError;
+
+            return documentRecord;
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            throw error;
+        }
+    };
+
+    const createFolderInSupabase = async (folderName, parentId = 'root') => {
+        try {
+            const folderData = {
+                id: `folder_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+                name: folderName,
+                parent_id: parentId === 'root' ? null : parentId,
+                description: folderForm.description || '',
+                category: folderForm.category || '',
+                plant: folderForm.plant || '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { data, error } = await supabase
+                .from('folders')
+                .insert([folderData])
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            const folderStoragePath = getFolderStoragePath(folderData.id);
+            if (folderStoragePath) {
+                await createFolderInStorage(folderStoragePath);
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Error creating folder:', error);
+            throw error;
+        }
+    };
+
+    const handleFileUpload = async (files) => {
+        setIsUploading(true);
+        try {
+            const uploadPromises = Array.from(files).map(file =>
+                uploadFileToSupabase(file, selectedFolder)
+            );
+
+            await Promise.all(uploadPromises);
+
+            setShowUploadModal(false);
+            setUploadForm({ files: [], category: '', plant: '', tags: [], description: '' });
+
+            showNotification('Archivos subidos exitosamente', 'success');
+        } catch (error) {
+            console.error('Error uploading files:', error);
+            showNotification('Error al subir archivos: ' + error.message, 'error');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleCreateFolder = async () => {
+        if (!folderForm.name.trim()) {
+            showNotification('Ingresa un nombre para la carpeta', 'error');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            await createFolderInSupabase(folderForm.name.trim(), selectedFolder);
+
+            setShowCreateFolderModal(false);
+            setFolderForm({ name: '', description: '', parent: 'root', plant: '', category: '' });
+
+            showNotification('Carpeta creada exitosamente', 'success');
+        } catch (error) {
+            console.error('Error creating folder:', error);
+            showNotification('Error al crear carpeta: ' + error.message, 'error');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const refreshData = async () => {
+        setLoading(true);
+        try {
+            await Promise.all([
+                loadFoldersFromSupabase(),
+                loadDocumentsFromSupabase()
+            ]);
+            await syncAllFromStorage();
+        } catch (error) {
+            console.error('Error refreshing data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const initializeData = async () => {
+            setLoading(true);
+            try {
+                await loadFoldersFromSupabase();
+                await loadDocumentsFromSupabase();
+                await syncAllFromStorage();
+            } catch (error) {
+                console.error('Error initializing data:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        initializeData();
+    }, []);
 
     const handleDocumentSelection = (documentId, isSelected) => {
         setSelectedDocuments(prev => {
@@ -292,586 +624,17 @@ const GestionDocumentosPage = () => {
         const documentsToDownload = sortedDocuments.filter(doc => selectedDocuments.has(doc.id));
 
         if (documentsToDownload.length === 0) {
-            alert('Selecciona al menos un archivo para descargar');
+            showNotification('Selecciona al menos un archivo para descargar', 'warning');
             return;
         }
 
-        // Descargar cada archivo seleccionado
         documentsToDownload.forEach(document => {
-            setTimeout(() => handleDownload(document), 100); // Pequeño delay entre descargas
+            setTimeout(() => handleDownload(document), 100);
         });
 
-        // Limpiar selección después de descargar
         setSelectedDocuments(new Set());
+        showNotification(`Descargando ${documentsToDownload.length} archivo(s)`, 'success');
     };
-
-    // Función para cargar archivos con token específico
-    const loadGoogleDriveFilesWithToken = async (token) => {
-        setLoading(true);
-        try {
-            console.log('Cargando archivos de Google Drive con token...');
-
-            if (!token) {
-                throw new Error('No hay token de autenticación');
-            }
-
-            // Buscar carpeta PLANTAS en Google Drive
-            const plantasResponse = await window.gapi.client.drive.files.list({
-                q: "name='PLANTAS' and mimeType='application/vnd.google-apps.folder'",
-                fields: 'files(id, name, parents)'
-            });
-
-            let plantasFolderId = null;
-            if (plantasResponse.result.files.length > 0) {
-                plantasFolderId = plantasResponse.result.files[0].id;
-                console.log('Carpeta PLANTAS encontrada:', plantasFolderId);
-            } else {
-                console.log('Carpeta PLANTAS no encontrada, usando raíz');
-            }
-
-            // Si no existe PLANTAS, usar la raíz
-            const rootFolderId = plantasFolderId || 'root';
-
-            // Cargar estructura de carpetas y archivos
-            await loadFolderStructure(rootFolderId, 'root', 'PLANTAS');
-
-        } catch (error) {
-            console.error('Error loading Google Drive files:', error);
-
-            // Si es error de autenticación, limpiar estado y storage
-            if (error.status === 401 || error.message.includes('autenticación')) {
-                clearStoredToken();
-                setIsGoogleAuth(false);
-            }
-
-            loadDefaultStructure();
-        }
-        setLoading(false);
-    };
-
-    // Función para hacer login en Google
-    const signInToGoogle = async () => {
-        if (!googleAuthInstance) {
-            console.error('Cliente OAuth no inicializado');
-            return;
-        }
-
-        setIsGoogleLoading(true);
-        try {
-            console.log('Solicitando token de acceso...');
-
-            // Solicitar token de acceso
-            googleAuthInstance.requestAccessToken({
-                prompt: 'consent'
-            });
-
-        } catch (error) {
-            console.error('Error en sign in:', error);
-            setIsGoogleLoading(false);
-        }
-    };
-
-    // Función para hacer logout de Google
-    const signOutFromGoogle = () => {
-        // Revocar token
-        if (window.google?.accounts?.oauth2 && authToken) {
-            window.google.accounts.oauth2.revoke(authToken, () => {
-                console.log('Token revocado');
-            });
-        }
-
-        setIsGoogleAuth(false);
-        setGoogleAuthInstance(null);
-        setIsGoogleLoading(false);
-        clearStoredToken(); // Usar la nueva función de limpieza
-        loadDefaultStructure();
-    };
-
-    // Función para subir archivo a Google Drive
-    const uploadFileToGoogleDrive = async (file, parentFolderId = null) => {
-        try {
-            console.log('Subiendo archivo:', file.name);
-
-            const currentToken = authToken;
-            if (!currentToken) {
-                throw new Error('No hay token de autenticación');
-            }
-
-            // Obtener el ID de la carpeta padre
-            const targetFolderId = parentFolderId || getCurrentFolderGoogleId();
-
-            // Crear metadata del archivo
-            const metadata = {
-                name: file.name,
-                parents: targetFolderId ? [targetFolderId] : undefined
-            };
-
-            // Crear FormData para el archivo
-            const form = new FormData();
-            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            form.append('file', file);
-
-            // Subir archivo usando el token guardado
-            const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST',
-                headers: new Headers({
-                    'Authorization': `Bearer ${currentToken}`
-                }),
-                body: form
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    // Token expirado
-                    clearStoredToken();
-                    setIsGoogleAuth(false);
-                    throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
-                }
-                throw new Error(`Error al subir archivo: ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log('Archivo subido exitosamente:', result);
-
-            return result;
-
-        } catch (error) {
-            console.error('Error subiendo archivo:', error);
-            throw error;
-        }
-    };
-
-    const getFilePreview = (document) => {
-        const fileExtension = document.name.split('.').pop()?.toLowerCase();
-        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExtension);
-        const isPdf = fileExtension === 'pdf';
-        const isText = ['txt', 'md', 'json', 'csv', 'xml', 'log'].includes(fileExtension);
-        const isCode = ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py', 'java', 'cpp', 'c', 'php', 'rb'].includes(fileExtension);
-        const isVideo = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(fileExtension);
-        const isAudio = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(fileExtension);
-
-        if (document.isGoogleDrive) {
-            // Para archivos de Google Drive
-            if (isImage) {
-                return (
-                    <div className="flex justify-center">
-                        <img
-                            src={`https://drive.google.com/uc?export=view&id=${document.googleId}`}
-                            alt={document.name}
-                            className="max-w-full max-h-96 object-contain rounded"
-                            onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'block';
-                            }}
-                        />
-                        <div style={{ display: 'none' }} className="text-center p-8 text-secondary">
-                            No se puede mostrar la previsualización de esta imagen
-                        </div>
-                    </div>
-                );
-            }
-
-            if (isPdf) {
-                return (
-                    <div className="flex justify-center">
-                        <iframe
-                            src={`https://drive.google.com/file/d/${document.googleId}/preview`}
-                            className="w-full h-96 border rounded"
-                            title={document.name}
-                        />
-                    </div>
-                );
-            }
-
-            if (isVideo) {
-                return (
-                    <div className="flex justify-center">
-                        <video
-                            controls
-                            className="max-w-full max-h-96 rounded"
-                            preload="metadata"
-                        >
-                            <source src={`https://drive.google.com/uc?export=download&id=${document.googleId}`} />
-                            Tu navegador no soporta la reproducción de video.
-                        </video>
-                    </div>
-                );
-            }
-
-            // Para otros tipos de archivo de Google Drive
-            return (
-                <div className="text-center p-8">
-                    <div className="text-6xl mb-4">📄</div>
-                    <p className="text-secondary mb-4">
-                        Previsualización no disponible para este tipo de archivo
-                    </p>
-                    <button
-                        onClick={() => window.open(`https://drive.google.com/file/d/${document.googleId}/view`, '_blank')}
-                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                    >
-                        Abrir en Google Drive
-                    </button>
-                </div>
-            );
-        } else {
-            // Para archivos locales
-            if (isImage && document.file) {
-                const imageUrl = URL.createObjectURL(document.file);
-                return (
-                    <div className="flex justify-center">
-                        <img
-                            src={imageUrl}
-                            alt={document.name}
-                            className="max-w-full max-h-96 object-contain rounded"
-                        />
-                    </div>
-                );
-            }
-
-            // Para otros archivos locales
-            return (
-                <div className="text-center p-8">
-                    <div className="text-6xl mb-4">
-                        {isText || isCode ? '📝' :
-                            isPdf ? '📄' :
-                                isVideo ? '🎥' :
-                                    isAudio ? '🎵' : '📁'}
-                    </div>
-                    <p className="text-secondary">
-                        Previsualización no disponible para archivos locales
-                    </p>
-                </div>
-            );
-        }
-    };
-
-    // Función para crear carpeta en Google Drive
-    const createFolderInGoogleDrive = async (folderName, parentFolderId = null) => {
-        try {
-            console.log('Creando carpeta:', folderName);
-
-            // Obtener el ID de la carpeta padre
-            const targetFolderId = parentFolderId || getCurrentFolderGoogleId();
-
-            const metadata = {
-                name: folderName,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: targetFolderId ? [targetFolderId] : undefined
-            };
-
-            const response = await window.gapi.client.drive.files.create({
-                resource: metadata
-            });
-
-            console.log('Carpeta creada exitosamente:', response.result);
-            return response.result;
-
-        } catch (error) {
-            if (error.status === 401) {
-                // Token expirado
-                clearStoredToken();
-                setIsGoogleAuth(false);
-                throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
-            }
-            console.error('Error creando carpeta:', error);
-            throw error;
-        }
-    };
-
-    // Función para obtener el Google ID de la carpeta actual
-    const getCurrentFolderGoogleId = () => {
-        if (selectedFolder === 'root') {
-            // Buscar el Google ID de la carpeta PLANTAS
-            const plantasFolder = folders.find(f => f.id === 'root');
-            return plantasFolder?.googleId || null;
-        } else {
-            const folder = folders.find(f => f.id === selectedFolder);
-            return folder?.googleId || null;
-        }
-    };
-
-    // Handler para subir archivos
-    const handleFileUpload = async (files) => {
-        if (!isGoogleAuth || !authToken) {
-            alert('Conecta tu cuenta de Google Drive primero');
-            return;
-        }
-
-        setIsUploading(true);
-        try {
-            const uploadPromises = Array.from(files).map(file => uploadFileToGoogleDrive(file));
-            await Promise.all(uploadPromises);
-
-            // Recargar la estructura después de subir
-            await loadGoogleDriveFiles();
-            setShowUploadModal(false);
-            setUploadForm({ files: [], category: '', plant: '', tags: [], description: '' });
-
-            alert('Archivos subidos exitosamente');
-
-        } catch (error) {
-            console.error('Error subiendo archivos:', error);
-            alert('Error al subir archivos: ' + error.message);
-
-            // Si es error de autenticación, limpiar estado
-            if (error.message.includes('Sesión expirada')) {
-                clearStoredToken();
-                setIsGoogleAuth(false);
-            }
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
-    // Handler para crear carpeta
-    const handleCreateFolder = async () => {
-        if (!isGoogleAuth || !authToken) {
-            alert('Conecta tu cuenta de Google Drive primero');
-            return;
-        }
-
-        if (!folderForm.name.trim()) {
-            alert('Ingresa un nombre para la carpeta');
-            return;
-        }
-
-        setIsUploading(true);
-        try {
-            await createFolderInGoogleDrive(folderForm.name.trim());
-
-            // Recargar la estructura después de crear la carpeta
-            await loadGoogleDriveFiles();
-            setShowCreateFolderModal(false);
-            setFolderForm({ name: '', description: '', parent: 'root', plant: '', category: '' });
-
-            alert('Carpeta creada exitosamente');
-
-        } catch (error) {
-            console.error('Error creando carpeta:', error);
-            alert('Error al crear carpeta: ' + error.message);
-
-            // Si es error de autenticación, limpiar estado
-            if (error.message.includes('Sesión expirada')) {
-                clearStoredToken();
-                setIsGoogleAuth(false);
-            }
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
-    // Función para cargar archivos de Google Drive
-    const loadGoogleDriveFiles = async () => {
-        if (!authToken) {
-            console.log('No hay token guardado, cargando estructura por defecto');
-            loadDefaultStructure();
-            return;
-        }
-
-        await loadGoogleDriveFilesWithToken(authToken);
-    };
-
-    // Función para cargar estructura de carpetas
-    const loadFolderStructure = async (folderId, parentId, folderName) => {
-        try {
-            // Cargar toda la estructura recursivamente
-            const allFolders = [];
-            const allDocuments = [];
-
-            const loadFolderRecursive = async (currentFolderId, currentParentId, currentName, level = 0) => {
-                const response = await window.gapi.client.drive.files.list({
-                    q: `'${currentFolderId}' in parents and trashed=false`,
-                    fields: 'files(id, name, mimeType, parents, createdTime, size)',
-                    orderBy: 'name'
-                });
-
-                const files = response.result.files;
-                const currentFolder = {
-                    id: currentParentId,
-                    name: currentName,
-                    parent: currentParentId === 'root' ? null : (level === 1 ? 'root' :
-                        allFolders.find(f => f.googleId === currentParentId)?.parent || 'root'),
-                    children: [],
-                    type: currentParentId === 'root' ? 'root' : 'folder',
-                    googleId: currentFolderId
-                };
-
-                // Solo agregar la carpeta raíz una vez
-                if (currentParentId === 'root') {
-                    allFolders.push(currentFolder);
-                }
-
-                // Procesar archivos y carpetas
-                for (const file of files) {
-                    if (file.mimeType === 'application/vnd.google-apps.folder') {
-                        // Es una carpeta
-                        const subfolder = {
-                            id: file.id,
-                            name: file.name,
-                            parent: currentParentId,
-                            children: [],
-                            type: 'folder',
-                            googleId: file.id
-                        };
-                        allFolders.push(subfolder);
-
-                        // Encontrar la carpeta padre y agregar este hijo
-                        let parentFolder = allFolders.find(f => f.id === currentParentId);
-                        if (!parentFolder && currentParentId !== 'root') {
-                            // Si no encuentra la carpeta padre, buscar por googleId
-                            parentFolder = allFolders.find(f => f.googleId === currentParentId);
-                        }
-                        if (parentFolder) {
-                            parentFolder.children.push(file.id);
-                        }
-
-                        // Cargar contenido de la subcarpeta recursivamente
-                        await loadFolderRecursive(file.id, file.id, file.name, level + 1);
-                    } else {
-                        // Es un archivo
-                        const document = {
-                            id: file.id,
-                            name: file.name,
-                            size: parseInt(file.size) || 0,
-                            type: file.mimeType,
-                            folder: currentParentId === 'root' ? 'root' : file.parents[0],
-                            uploadedBy: 'Google Drive',
-                            uploadedAt: file.createdTime,
-                            tags: [],
-                            description: ``,
-                            googleId: file.id,
-                            isGoogleDrive: true
-                        };
-                        allDocuments.push(document);
-                    }
-                }
-            };
-
-            // Comenzar la carga recursiva
-            await loadFolderRecursive(folderId, parentId, folderName);
-
-            // Actualizar estado con toda la estructura
-            setFolders(allFolders);
-            setDocuments(allDocuments);
-            setExpandedFolders(new Set(['root']));
-
-            console.log(`Cargadas ${allFolders.length} carpetas y ${allDocuments.length} archivos`);
-
-        } catch (error) {
-            console.error('Error loading folder structure:', error);
-
-            // Si es error de autenticación, limpiar estado y storage
-            if (error.status === 401) {
-                clearStoredToken();
-                setIsGoogleAuth(false);
-            }
-        }
-    };
-
-    // Efecto para cargar token al montar el componente
-    useEffect(() => {
-        console.log('🔄 Componente montado, cargando token almacenado...');
-
-        // Cargar token del storage al inicio
-        const storedToken = loadStoredToken();
-        if (storedToken) {
-            console.log('🔍 Token encontrado en storage, se usará en auto-login');
-        }
-    }, []);
-
-    useEffect(() => {
-        console.log('🔍 Token actual:', authToken ? 'Presente' : 'Ausente');
-    }, [authToken]);
-
-    // Función para descargar archivo de Google Drive
-    const downloadGoogleDriveFile = async (document) => {
-        try {
-            // Crear enlace directo de descarga
-            const downloadUrl = `https://drive.google.com/uc?export=download&id=${document.googleId}`;
-            window.open(downloadUrl, '_blank');
-        } catch (error) {
-            console.error('Error downloading file:', error);
-            // Fallback: abrir en nueva pestaña
-            window.open(`https://drive.google.com/file/d/${document.googleId}/view`, '_blank');
-        }
-    };
-
-    // Inicializar Google API
-    useEffect(() => {
-        const loadGoogleAPI = () => {
-            // Cargar Google Identity Services y GAPI
-            const gisScript = document.createElement('script');
-            gisScript.src = 'https://accounts.google.com/gsi/client';
-            gisScript.async = true;
-
-            const gapiScript = document.createElement('script');
-            gapiScript.src = 'https://apis.google.com/js/api.js';
-            gapiScript.async = true;
-
-            let scriptsLoaded = 0;
-            const checkAllLoaded = () => {
-                scriptsLoaded++;
-                if (scriptsLoaded === 2) {
-                    console.log('✅ Todos los scripts de Google cargados');
-                    initializeGoogleServices();
-                }
-            };
-
-            gisScript.onload = checkAllLoaded;
-            gapiScript.onload = checkAllLoaded;
-
-            gisScript.onerror = gapiScript.onerror = () => {
-                console.error('❌ Error cargando scripts de Google');
-                loadDefaultStructure();
-            };
-
-            document.head.appendChild(gisScript);
-            document.head.appendChild(gapiScript);
-        };
-
-        const initializeGoogleServices = async () => {
-            try {
-                console.log('🔄 Inicializando servicios Google...');
-
-                // Inicializar GAPI client
-                await new Promise((resolve, reject) => {
-                    window.gapi.load('client:auth2', {
-                        callback: resolve,
-                        onerror: reject
-                    });
-                });
-
-                await window.gapi.client.init({
-                    apiKey: GOOGLE_API_KEY,
-                    discoveryDocs: [DISCOVERY_DOC]
-                });
-
-                console.log('✅ Google Client inicializado');
-
-                // Configurar Google Identity Services
-                if (window.google?.accounts) {
-                    initGoogleIdentity();
-                } else {
-                    console.error('❌ Google Identity Services no disponible');
-                    loadDefaultStructure();
-                }
-
-            } catch (error) {
-                console.error('❌ Error inicializando Google Services:', error);
-                loadDefaultStructure();
-            }
-        };
-
-        // Solo cargar si estamos en el navegador
-        if (typeof window !== 'undefined') {
-            if (window.gapi && window.google?.accounts) {
-                console.log('✅ APIs de Google ya disponibles');
-                initializeGoogleServices();
-            } else {
-                loadGoogleAPI();
-            }
-        }
-    }, []);
 
     const formatFileSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
@@ -906,25 +669,49 @@ const GestionDocumentosPage = () => {
 
     const selectFolder = (folderId) => {
         setSelectedFolder(folderId);
+        setExpandedFolders(prev => {
+            const newSet = new Set(prev);
+            newSet.add(folderId);
+            return newSet;
+        });
     };
 
-    // Obtener documentos de la carpeta seleccionada
+    const getFolderHierarchy = () => {
+        const folderMap = new Map();
+        const rootFolders = [];
+
+        folders.forEach(folder => {
+            folderMap.set(folder.id, { ...folder, children: [] });
+        });
+
+        folders.forEach(folder => {
+            if (folder.parent_id === null || folder.parent_id === 'root') {
+                rootFolders.push(folderMap.get(folder.id));
+            } else {
+                const parent = folderMap.get(folder.parent_id);
+                if (parent) {
+                    parent.children.push(folderMap.get(folder.id));
+                }
+            }
+        });
+
+        return rootFolders;
+    };
+
     const getCurrentFolderDocuments = () => {
         return documents.filter(doc => {
-            // Si estamos en root, mostrar archivos de root
-            if (selectedFolder === 'root') {
-                return doc.folder === 'root';
-            }
+            let matchesFolder = false;
 
-            // Para otras carpetas, buscar por el ID de Google Drive
-            const selectedFolderData = folders.find(f => f.id === selectedFolder);
-            const matchesFolder = doc.folder === selectedFolder ||
-                (selectedFolderData && doc.folder === selectedFolderData.googleId);
+            if (selectedFolder === 'root') {
+                matchesFolder = doc.folder_id === 'root' || doc.folder_id === null;
+            } else {
+                matchesFolder = doc.folder_id === selectedFolder;
+            }
 
             const matchesSearch = searchTerm === '' ||
                 doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 doc.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                doc.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
+                (doc.tags && doc.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())));
 
             return matchesFolder && matchesSearch;
         });
@@ -943,8 +730,8 @@ const GestionDocumentosPage = () => {
                 bValue = b.size;
                 break;
             case 'date':
-                aValue = new Date(a.uploadedAt);
-                bValue = new Date(b.uploadedAt);
+                aValue = new Date(a.created_at);
+                bValue = new Date(b.created_at);
                 break;
             default:
                 aValue = a.name.toLowerCase();
@@ -958,78 +745,168 @@ const GestionDocumentosPage = () => {
         }
     });
 
-    // Renderizar árbol de carpetas
-    const renderFolderTree = (folderId, level = 0) => {
-        const folder = folders.find(f => f.id === folderId);
-        if (!folder) return null;
-
-        const isExpanded = expandedFolders.has(folderId);
-        const isSelected = selectedFolder === folderId;
+    const renderFolderTree = (folder, level = 0) => {
+        const isExpanded = expandedFolders.has(folder.id);
+        const isSelected = selectedFolder === folder.id;
         const hasChildren = folder.children && folder.children.length > 0;
 
         return (
-            <div key={folderId}>
+            <div key={folder.id}>
                 <div
-                    className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover-bg ${isSelected ? 'item_selected' : ''}`}
+                    className={`flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''
+                        }`}
                     style={{ paddingLeft: `${level * 16 + 8}px` }}
-                    onClick={() => selectFolder(folderId)}
+                    onClick={() => selectFolder(folder.id)}
                 >
-                    {hasChildren && (
+                    {hasChildren ? (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                toggleFolder(folderId);
+                                toggleFolder(folder.id);
                             }}
-                            className="p-1 hover-badge-gray rounded"
+                            className="p-1 hover:bg-gray-200 rounded transition-colors"
                         >
                             {isExpanded ?
-                                <ChevronDown size={14} className="text-secondary" /> :
-                                <ChevronRight size={14} className="text-secondary" />
+                                <ChevronDown size={14} className="text-gray-600" /> :
+                                <ChevronRight size={14} className="text-gray-600" />
                             }
                         </button>
+                    ) : (
+                        <div className="w-6" />
                     )}
 
-                    {!hasChildren && <div className="w-6" />}
-
-                    {isExpanded && hasChildren ?
-                        <FolderOpen size={16} className="text-yellow-600" /> :
+                    {isSelected && isExpanded ? (
+                        <FolderOpen size={16} className="text-yellow-600" />
+                    ) : (
                         <Folder size={16} className="text-yellow-600" />
-                    }
+                    )}
 
-                    <span className={`text-sm truncate ${isSelected ? 'text-selected font-medium' : 'text-primary'}`}>
+                    <span className={`text-sm truncate flex-1 ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'
+                        }`}>
                         {folder.name}
                     </span>
                 </div>
 
                 {isExpanded && hasChildren && (
-                    <div>
-                        {folder.children.map(childId => renderFolderTree(childId, level + 1))}
+                    <div className="ml-2">
+                        {folder.children
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(child => renderFolderTree(child, level + 1))
+                        }
                     </div>
                 )}
             </div>
         );
     };
 
-    const handleDownload = (document) => {
-        if (document.isGoogleDrive) {
-            downloadGoogleDriveFile(document);
-        } else if (document.file) {
-            // Archivo local
-            const url = URL.createObjectURL(document.file);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = document.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
+    const getBreadcrumb = (folderId) => {
+        if (folderId === 'root') return 'PLANTAS';
+
+        const folder = folders.find(f => f.id === folderId);
+        if (!folder) return 'PLANTAS';
+
+        const buildPath = (currentFolder) => {
+            if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
+                return currentFolder ? [currentFolder.name] : [];
+            }
+
+            const parent = folders.find(f => f.id === currentFolder.parent_id);
+            return [...buildPath(parent), currentFolder.name];
+        };
+
+        const path = buildPath(folder);
+        return 'PLANTAS > ' + path.join(' > ');
     };
 
-    const handleDelete = (documentId) => {
-        if (window.confirm('¿Eliminar este documento?')) {
-            setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+    const handleDownload = (doc) => {
+        const link = window.document.createElement('a');
+        link.href = doc.file_url;
+        link.download = doc.original_name || doc.name;
+        link.target = '_blank';
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+    };
+
+    const getFilePreview = (document) => {
+        const fileExtension = document.name.split('.').pop()?.toLowerCase();
+        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExtension);
+        const isPdf = fileExtension === 'pdf';
+        const isText = ['txt', 'md', 'json', 'csv', 'xml', 'log'].includes(fileExtension);
+        const isCode = ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py', 'java', 'cpp', 'c', 'php', 'rb'].includes(fileExtension);
+        const isVideo = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(fileExtension);
+        const isAudio = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(fileExtension);
+
+        if (isImage) {
+            return (
+                <div className="flex justify-center">
+                    <img
+                        src={document.file_url}
+                        alt={document.name}
+                        className="max-w-full max-h-96 object-contain rounded"
+                        onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'block';
+                        }}
+                    />
+                    <div style={{ display: 'none' }} className="text-center p-8 text-gray-500">
+                        No se puede mostrar la previsualización de esta imagen
+                    </div>
+                </div>
+            );
         }
+
+        if (isPdf) {
+            return (
+                <div className="flex justify-center">
+                    <iframe
+                        src={document.file_url}
+                        className="w-full h-96 border rounded"
+                        title={document.name}
+                    />
+                </div>
+            );
+        }
+
+        if (isVideo) {
+            return (
+                <div className="flex justify-center">
+                    <video
+                        controls
+                        className="max-w-full max-h-96 rounded"
+                        preload="metadata"
+                    >
+                        <source src={document.file_url} />
+                        Tu navegador no soporta la reproducción de video.
+                    </video>
+                </div>
+            );
+        }
+
+        if (isAudio) {
+            return (
+                <div className="flex justify-center">
+                    <audio controls className="w-full">
+                        <source src={document.file_url} />
+                        Tu navegador no soporta la reproducción de audio.
+                    </audio>
+                </div>
+            );
+        }
+
+        return (
+            <div className="text-center p-8">
+                <div className="text-6xl mb-4">
+                    {isText || isCode ? '📝' :
+                        isPdf ? '📄' :
+                            isVideo ? '🎥' :
+                                isAudio ? '🎵' : '📁'}
+                </div>
+                <p className="text-gray-500 mb-4">
+                    Previsualización no disponible para este tipo de archivo
+                </p>
+            </div>
+        );
     };
 
     if (loading) {
@@ -1037,302 +914,321 @@ const GestionDocumentosPage = () => {
             <div className="flex items-center justify-center h-64">
                 <div className="text-center">
                     <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-                    <p className="text-secondary text-sm">
-                        {isGoogleLoading ? 'Conectando con Google Drive...' :
-                            authToken ? 'Cargando archivos de Google Drive...' :
-                                'Inicializando...'}
-                    </p>
+                    <p className="text-gray-500 text-sm">Cargando documentos...</p>
                 </div>
             </div>
         );
     }
 
+    const folderHierarchy = getFolderHierarchy();
+
     return (
-        <div className="h-screen flex flex-col bg-background">
+        <div className="h-screen flex flex-col bg-gray-50">
             {/* Toolbar superior */}
-            <div className="flex items-center justify-between p-4 border-b border-custom bg-panel">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white shadow-sm">
                 <div className="flex items-center gap-4">
-                    {/* Búsqueda */}
                     <div className="relative">
-                        <Search size={16} className="absolute left-3 top-2.5 text-secondary" />
+                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Buscar..."
+                            placeholder="Buscar documentos..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-9 pr-4 py-2 w-64 border border-custom rounded-lg bg-panel text-primary text-sm"
+                            className="pl-9 pr-4 py-2 w-64 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                     </div>
                 </div>
+
                 <div className="flex items-center gap-4">
-                    {/* Estado de Google Drive */}
-                    <div className="flex items-center gap-2">
-                        {isGoogleAuth ? (
-                            <>
-                                <button
-                                    onClick={loadGoogleDriveFiles}
-                                    className="flex items-center gap-2 px-3 py-2 text-sm text-blue-500 hover:text-blue-600 rounded cursor-pointer"
-                                    title="Sincronizar"
-                                >
-                                    <RefreshCw size={14} />
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">
-                                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                                    <span>Google Drive desconectado</span>
-                                </div>
-                                <button
-                                    onClick={signInToGoogle}
-                                    disabled={isGoogleLoading}
-                                    className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
-                                >
-                                    {isGoogleLoading ? 'Conectando...' : 'Conectar Google Drive'}
-                                </button>
-                            </>
-                        )}
-                    </div>
+                    <button
+                        onClick={refreshData}
+                        disabled={loading}
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                        <span className="hidden sm:block">Actualizar</span>
+                    </button>
                 </div>
             </div>
 
             {/* Contenido principal */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
-                <div className="w-80 border-r border-custom bg-panel overflow-y-auto">
+                <div className="w-80 border-r border-gray-200 bg-white overflow-y-auto">
                     <div className="p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="text-sm font-medium text-secondary">Carpetas</div>
-                            <div className="flex items-center gap-2">
-                                {isGoogleAuth && (
-                                    <button
-                                        onClick={() => setShowCreateFolderModal(true)}
-                                        disabled={isUploading}
-                                        className="p-1 text-blue-500 hover:bg-blue-100 rounded cursor-pointer disabled:opacity-50"
-                                        title="Crear carpeta"
-                                    >
-                                        <Plus size={16} />
-                                    </button>
-                                )}
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                                <Folder size={16} className="text-yellow-600" />
+                                {folders.find(f => f.id === 'root')?.name || 'PLANTAS'}
                             </div>
                         </div>
 
-                        {renderFolderTree('root')}
+                        <div className="space-y-1">
+                            {folderHierarchy.map(folder => (
+                                <div key={folder.id} className="group">
+                                    {renderFolderTree(folder)}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
                 {/* Panel derecho - Lista de archivos */}
                 <div className="flex-1 flex flex-col overflow-hidden">
-                    {/* Breadcrumb */}
-                    <div className="p-4 border-b border-custom bg-header-table">
-                        <div className="text-sm text-secondary">
-                            {(() => {
-                                const getBreadcrumb = (folderId) => {
-                                    const folder = folders.find(f => f.id === folderId);
-                                    if (!folder) return 'PLANTAS';
+                    {/* Breadcrumb y controles */}
+                    <div className="p-4 border-b border-gray-200 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="text-sm text-gray-600 font-medium">
+                                    {getBreadcrumb(selectedFolder)}
+                                </div>
+                                <div className="text-xs text-gray-400">
+                                    ({sortedDocuments.length} archivo{sortedDocuments.length !== 1 ? 's' : ''})
+                                </div>
+                            </div>
 
-                                    if (folder.parent && folder.parent !== 'root') {
-                                        return getBreadcrumb(folder.parent) + ' > ' + folder.name;
-                                    }
+                            <div className="flex items-center gap-4">
+                                {selectedDocuments.size > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={downloadSelectedDocuments}
+                                            className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer"
+                                        >
+                                            <Download size={14} />
+                                            Descargar ({selectedDocuments.size})
+                                        </button>
+                                    </div>
+                                )}
 
-                                    return folder.name;
-                                };
-
-                                return getBreadcrumb(selectedFolder);
-                            })()}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-sm text-gray-600">Ordenar por:</label>
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value)}
+                                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    >
+                                        <option value="name">Nombre</option>
+                                        <option value="date">Fecha</option>
+                                        <option value="size">Tamaño</option>
+                                    </select>
+                                    <button
+                                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                                        className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
+                                        title={`Orden ${sortOrder === 'asc' ? 'ascendente' : 'descendente'}`}
+                                    >
+                                        {sortOrder === 'asc' ? <SortAsc size={16} /> : <SortDesc size={16} />}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     {/* Lista de archivos */}
-                    <table className="w-full">
-                        <thead className="bg-header-table border-b border-custom sticky top-0">
-                            <tr>
-                                <th className="text-left p-3 font-medium text-primary text-sm w-12">
-                                    <input
-                                        type="checkbox"
-                                        checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
-                                        onChange={(e) => handleSelectAll(e.target.checked)}
-                                        className="rounded border-gray-300"
-                                    />
-                                </th>
-                                <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
-                                <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
-                                <th className="text-left p-3 font-medium text-primary text-sm">Modificado</th>
-                                <th className="text-right p-3 pr-6 font-medium text-primary text-sm">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedDocuments.map(document => (
-                                <tr key={document.id} className="border-b border-custom hover-bg">
-                                    <td className="p-3">
+                    <div className="flex-1 overflow-y-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                                <tr>
+                                    <th className="text-left p-3 font-medium text-gray-700 text-sm w-12">
                                         <input
                                             type="checkbox"
-                                            checked={selectedDocuments.has(document.id)}
-                                            onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
-                                            className="rounded border-gray-300"
+                                            checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
+                                            onChange={(e) => handleSelectAll(e.target.checked)}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                         />
-                                    </td>
-                                    <td className="p-3">
-                                        <div className="flex items-center gap-3">
-                                            <FileText className="text-blue-500" size={20} />
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-primary">{document.name}</span>
-                                                </div>
-                                                <div className="text-sm text-secondary">{document.description}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="p-3 text-secondary text-sm">
-                                        {formatFileSize(document.size)}
-                                    </td>
-                                    <td className="p-3 text-secondary text-sm">
-                                        {formatDate(document.uploadedAt)}
-                                    </td>
-                                    <td className="p-3 pr-6">
-                                        <div className="flex items-center justify-end gap-1">
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedDocument(document);
-                                                    setShowDocumentModal(true);
-                                                }}
-                                                className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
-                                                title="Ver detalles"
-                                            >
-                                                <Eye size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDownload(document)}
-                                                className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
-                                                title="Descargar"
-                                            >
-                                                <Download size={14} />
-                                            </button>
-                                            {!document.isGoogleDrive && (isAdmin || document.uploadedBy === user?.username) && (
-                                                <button
-                                                    onClick={() => handleDelete(document.id)}
-                                                    className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
-                                                    title="Eliminar"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </td>
+                                    </th>
+                                    <th className="text-left p-3 font-medium text-gray-700 text-sm">Nombre</th>
+                                    <th className="text-left p-3 font-medium text-gray-700 text-sm">Tamaño</th>
+                                    <th className="text-center p-3 font-medium text-gray-700 text-sm">Fecha de modificación</th>
+                                    <th className="text-center p-3 font-medium text-gray-700 text-sm">Acciones</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {sortedDocuments.map(document => (
+                                    <tr key={document.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                        <td className="p-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDocuments.has(document.id)}
+                                                onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                        </td>
+                                        <td className="p-3">
+                                            <div className="flex items-center gap-3">
+                                                <FileText className="text-blue-500 flex-shrink-0" size={20} />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-gray-900 truncate">{document.name}</span>
+                                                    </div>
+                                                    {document.tags && document.tags.length > 0 && (
+                                                        <div className="flex gap-1 mt-1">
+                                                            {document.tags.slice(0, 3).map(tag => (
+                                                                <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                                                                    <Tag size={8} />
+                                                                    {tag}
+                                                                </span>
+                                                            ))}
+                                                            {document.tags.length > 3 && (
+                                                                <span className="text-xs text-gray-400">
+                                                                    +{document.tags.length - 3} más
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="p-3 text-gray-600 text-sm">
+                                            {formatFileSize(document.size)}
+                                        </td>
+                                        <td className="p-3 text-gray-600 text-sm">
+                                            <div className="flex items-center justify-center gap-1">
+                                                <Calendar size={12} />
+                                                {formatDate(document.created_at)}
+                                            </div>
+                                        </td>
+                                        <td className="p-3">
+                                            <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedDocument(document);
+                                                        setShowDocumentModal(true);
+                                                    }}
+                                                    className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
+                                                    title="Ver detalles"
+                                                >
+                                                    <Eye size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDownload(document)}
+                                                    className="p-2 text-green-600 hover:bg-green-100 rounded-md transition-colors cursor-pointer"
+                                                    title="Descargar"
+                                                >
+                                                    <Download size={14} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
 
-                    {sortedDocuments.length === 0 && (
-                        <div className="flex items-center justify-center h-64">
-                            <div className="text-center">
-                                {isGoogleAuth ? (
-                                    <>
-                                        <h3 className="text-lg font-medium text-primary mb-2">Carpeta vacía</h3>
-                                        <p className="text-secondary">
-                                            {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta de Google Drive está vacía'}
-                                        </p>
-                                    </>
-                                ) : (
-                                    <>
-                                        <FileText size={48} className="mx-auto text-secondary mb-4" />
-                                        <h3 className="text-lg font-medium text-primary mb-2">Sin documentos</h3>
-                                        {/* En la sección de "Sin documentos", agregar: */}
-                                        <p className="text-xs text-secondary">
-                                            La sesión se mantendrá activa automáticamente
-                                        </p>
-                                        <p className="text-secondary">
-                                            Conecta tu Google Drive para ver tus archivos
-                                        </p>
-                                    </>
-                                )}
+                        {sortedDocuments.length === 0 && (
+                            <div className="flex items-center justify-center h-64">
+                                <div className="text-center">
+                                    <FileText size={48} className="mx-auto text-gray-400 mb-4" />
+                                    <h3 className="text-lg font-medium text-gray-900 mb-2">Sin documentos</h3>
+                                    <p className="text-gray-500 mb-4">
+                                        {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta está vacía'}
+                                    </p>
+                                </div>
                             </div>
-                        </div>
-                    )}
-                </div>
-                {/* Botones flotantes */}
-                {isGoogleAuth && (
-                    <div className="fixed bottom-6 right-6 flex gap-3 z-40">
-                        {/* Botón de descarga masiva */}
-                        {selectedDocuments.size > 0 && (
-                            <button
-                                onClick={downloadSelectedDocuments}
-                                className="flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 cursor-pointer transition-all duration-200 hover:scale-105"
-                                title={`Descargar ${selectedDocuments.size} archivo(s) seleccionado(s)`}
-                            >
-                                <Download size={20} />
-                                <span className="hidden sm:block">Descargar ({selectedDocuments.size})</span>
-                            </button>
                         )}
-
-                        {/* Botón de subir archivos */}
-                        <button
-                            onClick={() => setShowUploadModal(true)}
-                            disabled={isUploading}
-                            className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 cursor-pointer disabled:opacity-50 transition-all duration-200 hover:scale-105"
-                            title="Subir archivos"
-                        >
-                            <Upload size={20} />
-                            <span className="hidden sm:block">Subir</span>
-                        </button>
                     </div>
-                )}
+                </div>
             </div>
 
-            {/* Modal para subir archivos */}
+            {/* Botones flotantes */}
+            <div className="fixed bottom-6 right-6 flex gap-3 z-40">
+                <button
+                    onClick={() => setShowUploadModal(true)}
+                    disabled={isUploading}
+                    className="flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-200 hover:scale-105 disabled:opacity-50 cursor-pointer"
+                    title="Subir archivos"
+                >
+                    <Upload size={20} />
+                    <span className="hidden sm:block">
+                        {isUploading ? 'Subiendo...' : 'Subir'}
+                    </span>
+                    {isUploading && (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    )}
+                </button>
+            </div>
+
+            {/* Modales */}
             {showUploadModal && (
-                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-panel rounded-lg w-full max-w-lg">
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg w-full max-w-lg shadow-xl">
                         <div className="p-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-primary">Subir Archivos a Google Drive</h3>
-                                <button onClick={() => setShowUploadModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-lg font-semibold text-gray-900">Subir Archivos</h3>
+                                <button
+                                    onClick={() => setShowUploadModal(false)}
+                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                                >
                                     <X size={20} />
                                 </button>
                             </div>
 
-                            <div className="space-y-4">
-                                {/* Información de la carpeta de destino */}
-                                <div className="p-3 bg-blue-50 rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <Folder size={16} className="text-blue-500" />
-                                        <span className="text-sm text-blue-800 font-medium">
-                                            Destino: {(() => {
-                                                const getBreadcrumb = (folderId) => {
-                                                    const folder = folders.find(f => f.id === folderId);
-                                                    if (!folder) return 'PLANTAS';
-                                                    if (folder.parent && folder.parent !== 'root') {
-                                                        return getBreadcrumb(folder.parent) + ' > ' + folder.name;
-                                                    }
-                                                    return folder.name;
-                                                };
-                                                return getBreadcrumb(selectedFolder);
-                                            })()}
-                                        </span>
+                            <div className="space-y-6">
+                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-100 rounded-md">
+                                            <Folder size={16} className="text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-medium text-blue-900">
+                                                Destino de subida
+                                            </div>
+                                            <div className="text-sm text-blue-700">
+                                                {getBreadcrumb(selectedFolder)}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                {/* Selector de archivos */}
                                 <div>
-                                    <label className="block text-sm font-medium text-primary mb-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-3">
                                         Seleccionar archivos
                                     </label>
-                                    <input
-                                        type="file"
-                                        multiple
-                                        onChange={(e) => setUploadForm(prev => ({ ...prev, files: Array.from(e.target.files) }))}
-                                        className="w-full p-3 border border-custom rounded-lg bg-panel text-primary"
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            multiple
+                                            onChange={(e) => setUploadForm(prev => ({ ...prev, files: Array.from(e.target.files) }))}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            accept="*/*"
+                                        />
+                                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                                            <Upload size={48} className="mx-auto text-gray-400 mb-4" />
+                                            <div className="text-sm text-gray-600 mb-2">
+                                                <span className="font-medium text-blue-600">Haz clic para seleccionar</span> o arrastra archivos aquí
+                                            </div>
+                                            <div className="text-xs text-gray-500">
+                                                Soporta múltiples archivos de cualquier tipo
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {uploadForm.files.length > 0 && (
-                                        <div className="mt-2">
-                                            <p className="text-sm text-secondary mb-1">
-                                                {uploadForm.files.length} archivo(s) seleccionado(s):
-                                            </p>
-                                            <div className="max-h-32 overflow-y-auto">
+                                        <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+                                            <div className="text-sm font-medium text-gray-700 mb-3">
+                                                {uploadForm.files.length} archivo{uploadForm.files.length !== 1 ? 's' : ''} seleccionado{uploadForm.files.length !== 1 ? 's' : ''}
+                                            </div>
+                                            <div className="space-y-2 max-h-32 overflow-y-auto">
                                                 {uploadForm.files.map((file, index) => (
-                                                    <div key={index} className="text-xs text-primary p-1 bg-header-table rounded mb-1">
-                                                        {file.name} ({formatFileSize(file.size)})
+                                                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border">
+                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                            <FileText size={16} className="text-blue-500 flex-shrink-0" />
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="text-sm font-medium text-gray-900 truncate">
+                                                                    {file.name}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    {formatFileSize(file.size)}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                const newFiles = uploadForm.files.filter((_, i) => i !== index);
+                                                                setUploadForm(prev => ({ ...prev, files: newFiles }));
+                                                            }}
+                                                            className="p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
                                                     </div>
                                                 ))}
                                             </div>
@@ -1340,27 +1236,27 @@ const GestionDocumentosPage = () => {
                                     )}
                                 </div>
 
-                                {/* Botones */}
-                                <div className="flex justify-end gap-3 pt-4 border-t border-custom">
+                                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
                                     <button
                                         onClick={() => setShowUploadModal(false)}
-                                        className="px-4 py-2 text-secondary hover-bg rounded cursor-pointer"
+                                        className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
                                     >
                                         Cancelar
                                     </button>
                                     <button
                                         onClick={() => handleFileUpload(uploadForm.files)}
                                         disabled={uploadForm.files.length === 0 || isUploading}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                     >
                                         {isUploading ? (
                                             <>
                                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                Cargando...
+                                                Subiendo...
                                             </>
                                         ) : (
                                             <>
-                                                Aceptar
+                                                <Upload size={16} />
+                                                Subir {uploadForm.files.length} archivo{uploadForm.files.length !== 1 ? 's' : ''}
                                             </>
                                         )}
                                     </button>
@@ -1371,187 +1267,133 @@ const GestionDocumentosPage = () => {
                 </div>
             )}
 
-            {/* Modal para crear carpeta */}
-            {showCreateFolderModal && (
-                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-panel rounded-lg w-full max-w-md">
-                        <div className="p-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-primary">Crear Nueva Carpeta</h3>
-                                <button onClick={() => setShowCreateFolderModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                {/* Información de la carpeta padre */}
-                                <div className="p-3 bg-blue-50 rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <Folder size={16} className="text-blue-500" />
-                                        <span className="text-sm text-blue-800 font-medium">
-                                            Crear en: {(() => {
-                                                const getBreadcrumb = (folderId) => {
-                                                    const folder = folders.find(f => f.id === folderId);
-                                                    if (!folder) return 'PLANTAS';
-                                                    if (folder.parent && folder.parent !== 'root') {
-                                                        return getBreadcrumb(folder.parent) + ' > ' + folder.name;
-                                                    }
-                                                    return folder.name;
-                                                };
-                                                return getBreadcrumb(selectedFolder);
-                                            })()}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* Nombre de la carpeta */}
-                                <div>
-                                    <label className="block text-sm font-medium text-primary mb-2">
-                                        Nombre de la carpeta
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={folderForm.name}
-                                        onChange={(e) => setFolderForm(prev => ({ ...prev, name: e.target.value }))}
-                                        placeholder="Ingresa el nombre de la carpeta"
-                                        className="w-full p-3 border border-custom rounded-lg bg-panel text-primary"
-                                        autoFocus
-                                    />
-                                </div>
-
-                                {/* Botones */}
-                                <div className="flex justify-end gap-3 pt-4 border-t border-custom">
-                                    <button
-                                        onClick={() => setShowCreateFolderModal(false)}
-                                        className="px-4 py-2 text-secondary hover-bg rounded cursor-pointer"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={handleCreateFolder}
-                                        disabled={!folderForm.name.trim() || isUploading}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
-                                    >
-                                        {isUploading ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                Creando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                Crear
-                                            </>
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de detalles del documento */}
             {showDocumentModal && selectedDocument && (
-                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-panel rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-xl">
                         <div className="p-6 overflow-y-auto max-h-[90vh]">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-primary">Previsualización del Documento</h3>
-                                <button onClick={() => setShowDocumentModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-lg font-semibold text-gray-900">Previsualización del Documento</h3>
+                                <button
+                                    onClick={() => setShowDocumentModal(false)}
+                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                                >
                                     <X size={20} />
                                 </button>
                             </div>
 
                             <div className="space-y-6">
-                                {/* Información básica del archivo */}
-                                <div className="flex items-start gap-4 pb-4 border-b border-custom">
-                                    <div className="relative">
-                                        <FileText className="text-blue-500" size={32} />
+                                <div className="flex items-start gap-4 pb-6 border-b border-gray-200">
+                                    <div className="p-3 bg-blue-100 rounded-lg">
+                                        <FileText className="text-blue-600" size={24} />
                                     </div>
-                                    <div className="flex-1">
-                                        <h4 className="text-xl font-semibold text-primary mb-2">{selectedDocument.name}</h4>
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className="text-xl font-semibold text-gray-900 mb-3 break-words">{selectedDocument.name}</h4>
 
-                                        <div className="grid grid-cols-2 gap-4 text-sm">
-                                            <div>
-                                                <span className="font-medium text-secondary">Tamaño:</span>
-                                                <span className="ml-2 text-primary">{formatFileSize(selectedDocument.size)}</span>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                            <div className="space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-gray-500 w-16">Tamaño:</span>
+                                                    <span className="text-gray-900">{formatFileSize(selectedDocument.size)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-gray-500 w-16">Tipo:</span>
+                                                    <span className="text-gray-900">{selectedDocument.mime_type}</span>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <span className="font-medium text-secondary">Modificado:</span>
-                                                <span className="ml-2 text-primary">{formatDate(selectedDocument.uploadedAt)}</span>
-                                            </div>
-                                            <div>
-                                                <span className="font-medium text-secondary">Origen:</span>
-                                                <span className="ml-2 text-primary">{selectedDocument.uploadedBy}</span>
-                                            </div>
-                                            <div>
-                                                <span className="font-medium text-secondary">Tipo:</span>
-                                                <span className="ml-2 text-primary">{selectedDocument.type}</span>
+                                            <div className="space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-gray-500 w-16">Subido:</span>
+                                                    <span className="text-gray-900">{formatDate(selectedDocument.created_at)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-gray-500 w-16">Carpeta:</span>
+                                                    <span className="text-gray-900">{getBreadcrumb(selectedDocument.folder_id)}</span>
+                                                </div>
                                             </div>
                                         </div>
-
-                                        {selectedDocument.isGoogleDrive && (
-                                            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm text-blue-800 font-medium">
-                                                        Archivo sincronizado desde Google Drive
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {selectedDocument.tags && selectedDocument.tags.length > 0 && (
-                                            <div className="mt-4">
-                                                <span className="font-medium text-secondary">Etiquetas:</span>
-                                                <div className="flex flex-wrap gap-2 mt-2">
-                                                    {selectedDocument.tags.map(tag => (
-                                                        <span key={tag} className="px-2 py-1 bg-header-table text-primary text-sm rounded">
-                                                            {tag}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
 
-                                {/* Área de previsualización */}
-                                <div className="bg-gray-50 rounded-lg p-4">
-                                    <h5 className="font-medium text-primary mb-4">Previsualización</h5>
+                                <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                                    <h5 className="font-medium text-gray-700 mb-4 flex items-center gap-2">
+                                        <Eye size={16} />
+                                        Previsualización
+                                    </h5>
                                     {getFilePreview(selectedDocument)}
                                 </div>
 
-                                <div className="flex justify-end gap-3 pt-4 border-t border-custom">
+                                <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
                                     <button
                                         onClick={() => handleDownload(selectedDocument)}
-                                        className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 cursor-pointer"
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-green-700 transition-colors cursor-pointer"
                                     >
                                         <Download size={16} />
                                         Descargar
                                     </button>
-
-                                    {selectedDocument.isGoogleDrive && (
-                                        <button
-                                            onClick={() => window.open(`https://drive.google.com/file/d/${selectedDocument.googleId}/view`, '_blank')}
-                                            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer"
-                                        >
-                                            Abrir en Drive
-                                        </button>
-                                    )}
-
-                                    {!selectedDocument.isGoogleDrive && (isAdmin || selectedDocument.uploadedBy === user?.username) && (
-                                        <button
-                                            onClick={() => {
-                                                setShowDocumentModal(false);
-                                                handleDelete(selectedDocument.id);
-                                            }}
-                                            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 cursor-pointer"
-                                        >
-                                            <Trash2 size={16} />
-                                            Eliminar
-                                        </button>
-                                    )}
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Sistema de notificaciones */}
+            <div className="fixed top-4 right-4 z-50 space-y-3">
+                {notifications.map(notification => (
+                    <div
+                        key={notification.id}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out max-w-sm ${notification.type === 'success' ? 'bg-green-600 text-white' :
+                            notification.type === 'error' ? 'bg-red-600 text-white' :
+                                notification.type === 'warning' ? 'bg-yellow-600 text-white' :
+                                    'bg-blue-600 text-white'
+                            }`}
+                    >
+                        {notification.type === 'success' && <CheckCircle size={20} />}
+                        {notification.type === 'error' && <XCircle size={20} />}
+                        {notification.type === 'warning' && <AlertTriangle size={20} />}
+                        {notification.type === 'info' && <AlertCircle size={20} />}
+
+                        <span className="flex-1 text-sm font-medium">{notification.message}</span>
+
+                        <button
+                            onClick={() => removeNotification(notification.id)}
+                            className="p-1 hover:bg-white/20 rounded transition-colors cursor-pointer"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+
+            {/* Modal de confirmación */}
+            {showConfirmModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+                        <div className="p-6">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                                    <AlertTriangle className="text-red-600" size={24} />
+                                </div>
+                                <h3 className="text-lg font-semibold text-gray-900">Confirmar eliminación</h3>
+                            </div>
+
+                            <p className="text-gray-600 mb-6 leading-relaxed">
+                                {confirmAction?.message}
+                            </p>
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={handleCancelConfirm}
+                                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleConfirm}
+                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                                >
+                                    Eliminar
+                                </button>
                             </div>
                         </div>
                     </div>
