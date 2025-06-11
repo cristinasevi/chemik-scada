@@ -32,8 +32,8 @@ const GestionDocumentosPage = () => {
     const [isUploading, setIsUploading] = useState(false);
 
     // Configuración de Google Drive API - ACTUALIZADO CON PERMISOS DE ESCRITURA
-    const GOOGLE_CLIENT_ID = '890321344192-5k0qkn1ds7sfo4r8s08v898gl5lvesu1.apps.googleusercontent.com';
-    const GOOGLE_API_KEY = 'AIzaSyAXtodMMbdTCs3gj7FOiA1XzVZ6NIDtI2k';
+    const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
     const SCOPES = 'https://www.googleapis.com/auth/drive'; // Cambiado para incluir escritura
 
