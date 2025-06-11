@@ -1519,107 +1519,116 @@ const ExportacionVariablesPage = () => {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {filters.map(filter => (
-                  <div key={filter.id} className="border border-custom rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-3">
-                      {/* Filter Key Selection */}
-                      <select
-                        value={filter.key}
-                        onChange={(e) => updateFilterKey(filter.id, e.target.value)}
-                        className="flex-1 p-2 rounded-lg bg-header-table text-primary text-sm"
-                        disabled={loadingStates.bucketData}
-                      >
-                        <option value="">
-                          {!selectedBucket
-                            ? "Selecciona un bucket primero..."
-                            : getAvailableOptionsForFilter(filter.id).length === 0
-                              ? `Todos los filtros están en uso`
-                              : `Seleccionar filtro...`
-                          }
-                        </option>
+                {filters
+                  .filter(filter => {
+                    // Ocultar filtros de planta automáticos si vienes desde una URL de planta
+                    const plantaParam = searchParams.get('planta');
+                    if (plantaParam && filter.key === 'PVO_Plant') {
+                      return false; // No mostrar este filtro
+                    }
+                    return true; // Mostrar todos los demás filtros
+                  })
+                  .map(filter => (
+                    <div key={filter.id} className="border border-custom rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-3">
+                        {/* Filter Key Selection */}
+                        <select
+                          value={filter.key}
+                          onChange={(e) => updateFilterKey(filter.id, e.target.value)}
+                          className="flex-1 p-2 rounded-lg bg-header-table text-primary text-sm"
+                          disabled={loadingStates.bucketData}
+                        >
+                          <option value="">
+                            {!selectedBucket
+                              ? "Selecciona un bucket primero..."
+                              : getAvailableOptionsForFilter(filter.id).length === 0
+                                ? `Todos los filtros están en uso`
+                                : `Seleccionar filtro...`
+                            }
+                          </option>
 
-                        {/* Solo mostrar opciones si hay un bucket seleccionado y filtros disponibles */}
-                        {selectedBucket && getAvailableOptionsForFilter(filter.id).map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                          {/* Solo mostrar opciones si hay un bucket seleccionado y filtros disponibles */}
+                          {selectedBucket && getAvailableOptionsForFilter(filter.id).map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
 
-                      {/* Remove Filter Button */}
-                      <button
-                        onClick={() => removeFilter(filter.id)}
-                        className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-
-                    {/* Filter Values */}
-                    {filter.key && (
-                      <div>
-                        {filter.key === '_time' ? (
-                          <div className="grid grid-cols-1 gap-2">
-                            <input
-                              type="datetime-local"
-                              value={filter.timeStart || ''}
-                              onChange={(e) => updateFilterTime(filter.id, 'start', e.target.value)}
-                              className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
-                              placeholder="Start time"
-                            />
-                            <input
-                              type="datetime-local"
-                              value={filter.timeEnd || ''}
-                              onChange={(e) => updateFilterTime(filter.id, 'end', e.target.value)}
-                              className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
-                              placeholder="End time"
-                            />
-                          </div>
-                        ) : filter.key === '_value' ? (
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="number"
-                              value={filter.valueMin || ''}
-                              onChange={(e) => updateFilterValue(filter.id, 'min', e.target.value)}
-                              className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
-                              placeholder="Min value"
-                            />
-                            <input
-                              type="number"
-                              value={filter.valueMax || ''}
-                              onChange={(e) => updateFilterValue(filter.id, 'max', e.target.value)}
-                              className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
-                              placeholder="Max value"
-                            />
-                          </div>
-                        ) : (
-                          <div className="max-h-40 overflow-y-auto space-y-1 border border-custom rounded p-2 bg-header-table">
-                            {filter.loading ? (
-                              <div className="text-center py-2 text-secondary text-sm">
-                                <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
-                                Cargando valores...
-                              </div>
-                            ) : filter.availableValues.length === 0 ? (
-                              <div className="text-center py-2 text-secondary text-sm">
-                                No se encontraron valores
-                              </div>
-                            ) : (
-                              filter.availableValues.map(value => (
-                                <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={filter.selectedValues.includes(value)}
-                                    onChange={(e) => handleFilterValueChange(filter.id, value, e.target.checked)}
-                                    className="rounded"
-                                  />
-                                  <span className="truncate text-primary">{value}</span>
-                                </label>
-                              ))
-                            )}
-                          </div>
-                        )}
+                        {/* Remove Filter Button */}
+                        <button
+                          onClick={() => removeFilter(filter.id)}
+                          className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
+                        >
+                          <X size={16} />
+                        </button>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {/* Filter Values */}
+                      {filter.key && (
+                        <div>
+                          {filter.key === '_time' ? (
+                            <div className="grid grid-cols-1 gap-2">
+                              <input
+                                type="datetime-local"
+                                value={filter.timeStart || ''}
+                                onChange={(e) => updateFilterTime(filter.id, 'start', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Start time"
+                              />
+                              <input
+                                type="datetime-local"
+                                value={filter.timeEnd || ''}
+                                onChange={(e) => updateFilterTime(filter.id, 'end', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="End time"
+                              />
+                            </div>
+                          ) : filter.key === '_value' ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="number"
+                                value={filter.valueMin || ''}
+                                onChange={(e) => updateFilterValue(filter.id, 'min', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Min value"
+                              />
+                              <input
+                                type="number"
+                                value={filter.valueMax || ''}
+                                onChange={(e) => updateFilterValue(filter.id, 'max', e.target.value)}
+                                className="w-full p-2 border border-custom rounded bg-panel text-primary text-sm"
+                                placeholder="Max value"
+                              />
+                            </div>
+                          ) : (
+                            <div className="max-h-40 overflow-y-auto space-y-1 border border-custom rounded p-2 bg-header-table">
+                              {filter.loading ? (
+                                <div className="text-center py-2 text-secondary text-sm">
+                                  <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1" />
+                                  Cargando valores...
+                                </div>
+                              ) : filter.availableValues.length === 0 ? (
+                                <div className="text-center py-2 text-secondary text-sm">
+                                  No se encontraron valores
+                                </div>
+                              ) : (
+                                filter.availableValues.map(value => (
+                                  <label key={value} className="flex items-center space-x-2 text-sm cursor-pointer hover-bg rounded p-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={filter.selectedValues.includes(value)}
+                                      onChange={(e) => handleFilterValueChange(filter.id, value, e.target.checked)}
+                                      className="rounded"
+                                    />
+                                    <span className="truncate text-primary">{value}</span>
+                                  </label>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
               </div>
 
               {filters.length === 0 && (

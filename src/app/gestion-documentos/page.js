@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
-    Plus, X, MoreVertical, Grid, List, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw
-} from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
+    Plus, X, MoreVertical, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const GestionDocumentosPage = () => {
@@ -17,13 +15,13 @@ const GestionDocumentosPage = () => {
     const [selectedFolder, setSelectedFolder] = useState('root');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState('list');
     const [sortBy, setSortBy] = useState('name');
     const [sortOrder, setSortOrder] = useState('asc');
     const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
     const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState(null);
+    const [selectedDocuments, setSelectedDocuments] = useState(new Set());
 
     // Estados para Google Drive
     const [isGoogleAuth, setIsGoogleAuth] = useState(false);
@@ -40,8 +38,6 @@ const GestionDocumentosPage = () => {
 
     // Clave para sessionStorage
     const STORAGE_KEY = 'google_drive_session';
-
-    // ===== FUNCIONES DE PERSISTENCIA =====
 
     // Guardar token con persistencia temporal
     const saveAuthToken = (token) => {
@@ -141,8 +137,6 @@ const GestionDocumentosPage = () => {
         plant: '',
         category: ''
     });
-
-    // ===== FUNCIONES PRINCIPALES =====
 
     // Función para intentar login automático
     const tryAutoLogin = async () => {
@@ -271,6 +265,44 @@ const GestionDocumentosPage = () => {
             console.error('Error configurando Google Identity:', error);
             loadDefaultStructure();
         }
+    };
+
+    const handleDocumentSelection = (documentId, isSelected) => {
+        setSelectedDocuments(prev => {
+            const newSet = new Set(prev);
+            if (isSelected) {
+                newSet.add(documentId);
+            } else {
+                newSet.delete(documentId);
+            }
+            return newSet;
+        });
+    };
+
+    const handleSelectAll = (isSelected) => {
+        if (isSelected) {
+            const allDocumentIds = new Set(sortedDocuments.map(doc => doc.id));
+            setSelectedDocuments(allDocumentIds);
+        } else {
+            setSelectedDocuments(new Set());
+        }
+    };
+
+    const downloadSelectedDocuments = () => {
+        const documentsToDownload = sortedDocuments.filter(doc => selectedDocuments.has(doc.id));
+
+        if (documentsToDownload.length === 0) {
+            alert('Selecciona al menos un archivo para descargar');
+            return;
+        }
+
+        // Descargar cada archivo seleccionado
+        documentsToDownload.forEach(document => {
+            setTimeout(() => handleDownload(document), 100); // Pequeño delay entre descargas
+        });
+
+        // Limpiar selección después de descargar
+        setSelectedDocuments(new Set());
     };
 
     // Función para cargar archivos con token específico
@@ -406,6 +438,110 @@ const GestionDocumentosPage = () => {
         } catch (error) {
             console.error('Error subiendo archivo:', error);
             throw error;
+        }
+    };
+
+    const getFilePreview = (document) => {
+        const fileExtension = document.name.split('.').pop()?.toLowerCase();
+        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExtension);
+        const isPdf = fileExtension === 'pdf';
+        const isText = ['txt', 'md', 'json', 'csv', 'xml', 'log'].includes(fileExtension);
+        const isCode = ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py', 'java', 'cpp', 'c', 'php', 'rb'].includes(fileExtension);
+        const isVideo = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(fileExtension);
+        const isAudio = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(fileExtension);
+
+        if (document.isGoogleDrive) {
+            // Para archivos de Google Drive
+            if (isImage) {
+                return (
+                    <div className="flex justify-center">
+                        <img
+                            src={`https://drive.google.com/uc?export=view&id=${document.googleId}`}
+                            alt={document.name}
+                            className="max-w-full max-h-96 object-contain rounded"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'block';
+                            }}
+                        />
+                        <div style={{ display: 'none' }} className="text-center p-8 text-secondary">
+                            No se puede mostrar la previsualización de esta imagen
+                        </div>
+                    </div>
+                );
+            }
+
+            if (isPdf) {
+                return (
+                    <div className="flex justify-center">
+                        <iframe
+                            src={`https://drive.google.com/file/d/${document.googleId}/preview`}
+                            className="w-full h-96 border rounded"
+                            title={document.name}
+                        />
+                    </div>
+                );
+            }
+
+            if (isVideo) {
+                return (
+                    <div className="flex justify-center">
+                        <video
+                            controls
+                            className="max-w-full max-h-96 rounded"
+                            preload="metadata"
+                        >
+                            <source src={`https://drive.google.com/uc?export=download&id=${document.googleId}`} />
+                            Tu navegador no soporta la reproducción de video.
+                        </video>
+                    </div>
+                );
+            }
+
+            // Para otros tipos de archivo de Google Drive
+            return (
+                <div className="text-center p-8">
+                    <div className="text-6xl mb-4">📄</div>
+                    <p className="text-secondary mb-4">
+                        Previsualización no disponible para este tipo de archivo
+                    </p>
+                    <button
+                        onClick={() => window.open(`https://drive.google.com/file/d/${document.googleId}/view`, '_blank')}
+                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                        Abrir en Google Drive
+                    </button>
+                </div>
+            );
+        } else {
+            // Para archivos locales
+            if (isImage && document.file) {
+                const imageUrl = URL.createObjectURL(document.file);
+                return (
+                    <div className="flex justify-center">
+                        <img
+                            src={imageUrl}
+                            alt={document.name}
+                            className="max-w-full max-h-96 object-contain rounded"
+                        />
+                    </div>
+                );
+            }
+
+            // Para otros archivos locales
+            return (
+                <div className="text-center p-8">
+                    <div className="text-6xl mb-4">
+                        {isText || isCode ? '📝' :
+                            isPdf ? '📄' :
+                                isVideo ? '🎥' :
+                                    isAudio ? '🎵' : '📁'}
+                    </div>
+                    <p className="text-secondary">
+                        Previsualización no disponible para archivos locales
+                    </p>
+                </div>
+            );
         }
     };
 
@@ -632,8 +768,6 @@ const GestionDocumentosPage = () => {
         }
     };
 
-    // ===== EFECTOS =====
-
     // Efecto para cargar token al montar el componente
     useEffect(() => {
         console.log('🔄 Componente montado, cargando token almacenado...');
@@ -738,8 +872,6 @@ const GestionDocumentosPage = () => {
             }
         }
     }, []);
-
-    // ===== FUNCIONES DE UTILIDAD =====
 
     const formatFileSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
@@ -878,8 +1010,6 @@ const GestionDocumentosPage = () => {
         );
     };
 
-    // ===== HANDLERS =====
-
     const handleDownload = (document) => {
         if (document.isGoogleDrive) {
             downloadGoogleDriveFile(document);
@@ -932,24 +1062,6 @@ const GestionDocumentosPage = () => {
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="pl-9 pr-4 py-2 w-64 border border-custom rounded-lg bg-panel text-primary text-sm"
                         />
-                    </div>
-
-                    {/* Controles de vista */}
-                    <div className="flex items-center border border-custom rounded-lg">
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 ${viewMode === 'list' ? 'bg-blue-500 text-white' : 'text-secondary hover-bg'} cursor-pointer rounded-lg`}
-                            title="Vista lista"
-                        >
-                            <List size={16} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 ${viewMode === 'grid' ? 'bg-blue-500 text-white' : 'text-secondary hover-bg'} cursor-pointer rounded-lg`}
-                            title="Vista cuadrícula"
-                        >
-                            <Grid size={16} />
-                        </button>
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -1032,130 +1144,139 @@ const GestionDocumentosPage = () => {
                     </div>
 
                     {/* Lista de archivos */}
-                    <div className="flex-1 overflow-y-auto">
-                        {viewMode === 'list' ? (
-                            <table className="w-full">
-                                <thead className="bg-header-table border-b border-custom sticky top-0">
-                                    <tr>
-                                        <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
-                                        <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
-                                        <th className="text-left p-3 font-medium text-primary text-sm">Modificado</th>
-                                        <th className="text-right p-3 pr-6 font-medium text-primary text-sm">Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {sortedDocuments.map(document => (
-                                        <tr key={document.id} className="border-b border-custom hover-bg">
-                                            <td className="p-3">
-                                                <div className="flex items-center gap-3">
-                                                    <FileText className="text-blue-500" size={20} />
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-medium text-primary">{document.name}</span>
-                                                        </div>
-                                                        <div className="text-sm text-secondary">{document.description}</div>
-                                                    </div>
+                    <table className="w-full">
+                        <thead className="bg-header-table border-b border-custom sticky top-0">
+                            <tr>
+                                <th className="text-left p-3 font-medium text-primary text-sm w-12">
+                                    <input
+                                        type="checkbox"
+                                        checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
+                                        onChange={(e) => handleSelectAll(e.target.checked)}
+                                        className="rounded border-gray-300"
+                                    />
+                                </th>
+                                <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
+                                <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
+                                <th className="text-left p-3 font-medium text-primary text-sm">Modificado</th>
+                                <th className="text-right p-3 pr-6 font-medium text-primary text-sm">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedDocuments.map(document => (
+                                <tr key={document.id} className="border-b border-custom hover-bg">
+                                    <td className="p-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedDocuments.has(document.id)}
+                                            onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
+                                            className="rounded border-gray-300"
+                                        />
+                                    </td>
+                                    <td className="p-3">
+                                        <div className="flex items-center gap-3">
+                                            <FileText className="text-blue-500" size={20} />
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-primary">{document.name}</span>
                                                 </div>
-                                            </td>
-                                            <td className="p-3 text-secondary text-sm">
-                                                {formatFileSize(document.size)}
-                                            </td>
-                                            <td className="p-3 text-secondary text-sm">
-                                                {formatDate(document.uploadedAt)}
-                                            </td>
-                                            <td className="p-3 pr-6">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedDocument(document);
-                                                            setShowDocumentModal(true);
-                                                        }}
-                                                        className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
-                                                        title="Ver detalles"
-                                                    >
-                                                        <Eye size={14} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDownload(document)}
-                                                        className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
-                                                        title="Descargar"
-                                                    >
-                                                        <Download size={14} />
-                                                    </button>
-                                                    {!document.isGoogleDrive && (isAdmin || document.uploadedBy === user?.username) && (
-                                                        <button
-                                                            onClick={() => handleDelete(document.id)}
-                                                            className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
-                                                            title="Eliminar"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        ) : (
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 p-4">
-                                {sortedDocuments.map(document => (
-                                    <div key={document.id} className="border border-custom rounded-lg p-3 hover-bg cursor-pointer">
-                                        <div className="flex flex-col items-center text-center">
-                                            <div className="relative">
-                                                <FileText className="text-blue-500 mb-2" size={32} />
-                                            </div>
-                                            <div className="text-sm font-medium text-primary truncate w-full" title={document.name}>
-                                                {document.name}
-                                            </div>
-                                            <div className="text-xs text-secondary mt-1">
-                                                {formatFileSize(document.size)}
+                                                <div className="text-sm text-secondary">{document.description}</div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    </td>
+                                    <td className="p-3 text-secondary text-sm">
+                                        {formatFileSize(document.size)}
+                                    </td>
+                                    <td className="p-3 text-secondary text-sm">
+                                        {formatDate(document.uploadedAt)}
+                                    </td>
+                                    <td className="p-3 pr-6">
+                                        <div className="flex items-center justify-end gap-1">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedDocument(document);
+                                                    setShowDocumentModal(true);
+                                                }}
+                                                className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
+                                                title="Ver detalles"
+                                            >
+                                                <Eye size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDownload(document)}
+                                                className="p-2 text-blue-500 hover-badge-blue rounded cursor-pointer"
+                                                title="Descargar"
+                                            >
+                                                <Download size={14} />
+                                            </button>
+                                            {!document.isGoogleDrive && (isAdmin || document.uploadedBy === user?.username) && (
+                                                <button
+                                                    onClick={() => handleDelete(document.id)}
+                                                    className="p-2 text-red-500 hover-badge-red rounded cursor-pointer"
+                                                    title="Eliminar"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {sortedDocuments.length === 0 && (
+                        <div className="flex items-center justify-center h-64">
+                            <div className="text-center">
+                                {isGoogleAuth ? (
+                                    <>
+                                        <h3 className="text-lg font-medium text-primary mb-2">Carpeta vacía</h3>
+                                        <p className="text-secondary">
+                                            {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta de Google Drive está vacía'}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <FileText size={48} className="mx-auto text-secondary mb-4" />
+                                        <h3 className="text-lg font-medium text-primary mb-2">Sin documentos</h3>
+                                        {/* En la sección de "Sin documentos", agregar: */}
+                                        <p className="text-xs text-secondary">
+                                            La sesión se mantendrá activa automáticamente
+                                        </p>
+                                        <p className="text-secondary">
+                                            Conecta tu Google Drive para ver tus archivos
+                                        </p>
+                                    </>
+                                )}
                             </div>
+                        </div>
+                    )}
+                </div>
+                {/* Botones flotantes */}
+                {isGoogleAuth && (
+                    <div className="fixed bottom-6 right-6 flex gap-3 z-40">
+                        {/* Botón de descarga masiva */}
+                        {selectedDocuments.size > 0 && (
+                            <button
+                                onClick={downloadSelectedDocuments}
+                                className="flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 cursor-pointer transition-all duration-200 hover:scale-105"
+                                title={`Descargar ${selectedDocuments.size} archivo(s) seleccionado(s)`}
+                            >
+                                <Download size={20} />
+                                <span className="hidden sm:block">Descargar ({selectedDocuments.size})</span>
+                            </button>
                         )}
 
-                        {sortedDocuments.length === 0 && (
-                            <div className="flex items-center justify-center h-64">
-                                <div className="text-center">
-                                    {isGoogleAuth ? (
-                                        <>
-                                            <h3 className="text-lg font-medium text-primary mb-2">Carpeta vacía</h3>
-                                            <p className="text-secondary">
-                                                {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta de Google Drive está vacía'}
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <FileText size={48} className="mx-auto text-secondary mb-4" />
-                                            <h3 className="text-lg font-medium text-primary mb-2">Sin documentos</h3>
-                                            {/* En la sección de "Sin documentos", agregar: */}
-                                            <p className="text-xs text-secondary">
-                                                La sesión se mantendrá activa automáticamente
-                                            </p>
-                                            <p className="text-secondary">
-                                                Conecta tu Google Drive para ver tus archivos
-                                            </p>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        {/* Botón de subir archivos */}
+                        <button
+                            onClick={() => setShowUploadModal(true)}
+                            disabled={isUploading}
+                            className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 cursor-pointer disabled:opacity-50 transition-all duration-200 hover:scale-105"
+                            title="Subir archivos"
+                        >
+                            <Upload size={20} />
+                            <span className="hidden sm:block">Subir</span>
+                        </button>
                     </div>
-                </div>
-                {/* Botón flotante para subir archivos */}
-                {isGoogleAuth && (
-                    <button
-                        onClick={() => setShowUploadModal(true)}
-                        disabled={isUploading}
-                        className="fixed bottom-6 right-6 flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 cursor-pointer disabled:opacity-50 z-40 transition-all duration-200 hover:scale-105"
-                        title="Subir archivos"
-                    >
-                        <Upload size={20} />
-                        <span className="hidden sm:block">Subir</span>
-                    </button>
                 )}
             </div>
 
@@ -1332,23 +1453,23 @@ const GestionDocumentosPage = () => {
             {/* Modal de detalles del documento */}
             {showDocumentModal && selectedDocument && (
                 <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-panel rounded-lg w-full max-w-2xl">
-                        <div className="p-6">
+                    <div className="bg-panel rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+                        <div className="p-6 overflow-y-auto max-h-[90vh]">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-primary">Detalles del Documento</h3>
+                                <h3 className="text-lg font-semibold text-primary">Previsualización del Documento</h3>
                                 <button onClick={() => setShowDocumentModal(false)} className="p-2 hover-badge-gray rounded cursor-pointer">
                                     <X size={20} />
                                 </button>
                             </div>
 
-                            <div className="space-y-4">
-                                <div className="flex items-start gap-4">
+                            <div className="space-y-6">
+                                {/* Información básica del archivo */}
+                                <div className="flex items-start gap-4 pb-4 border-b border-custom">
                                     <div className="relative">
                                         <FileText className="text-blue-500" size={32} />
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="text-xl font-semibold text-primary mb-2">{selectedDocument.name}</h4>
-                                        <p className="text-secondary mb-4">{selectedDocument.description}</p>
 
                                         <div className="grid grid-cols-2 gap-4 text-sm">
                                             <div>
@@ -1392,6 +1513,12 @@ const GestionDocumentosPage = () => {
                                             </div>
                                         )}
                                     </div>
+                                </div>
+
+                                {/* Área de previsualización */}
+                                <div className="bg-gray-50 rounded-lg p-4">
+                                    <h5 className="font-medium text-primary mb-4">Previsualización</h5>
+                                    {getFilePreview(selectedDocument)}
                                 </div>
 
                                 <div className="flex justify-end gap-3 pt-4 border-t border-custom">
