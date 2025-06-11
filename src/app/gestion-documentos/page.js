@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
     Plus, X, MoreVertical, SortAsc, SortDesc, Filter, Calendar, User, Tag, Cloud, RefreshCw, AlertCircle,
-    CheckCircle, XCircle, AlertTriangle
+    CheckCircle, XCircle, AlertTriangle, Pencil, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { createClient } from '@supabase/supabase-js';
@@ -34,6 +34,9 @@ const GestionDocumentosPage = () => {
     const [notifications, setNotifications] = useState([]);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
+    const [showFolderMenu, setShowFolderMenu] = useState(null);
+    const [editingFolder, setEditingFolder] = useState(null);
+    const [editingName, setEditingName] = useState('');
 
     // Estados para formularios
     const [uploadForm, setUploadForm] = useState({
@@ -88,76 +91,112 @@ const GestionDocumentosPage = () => {
         setConfirmAction(null);
     };
 
+    const handleBackgroundClick = (e) => {
+        if (e.target === e.currentTarget) {
+            setSelectedFolder('root');
+        }
+    };
+
     // Configurar listeners en tiempo real para Supabase
     useEffect(() => {
-        // Listener para cambios en documentos
-        const documentsSubscription = supabase
-            .channel('documents_changes')
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'documents'
-            }, (payload) => {
-                console.log('Cambio en documentos:', payload);
+        let documentsSubscription;
+        let foldersSubscription;
 
-                if (payload.eventType === 'INSERT') {
-                    setDocuments(prev => [payload.new, ...prev]);
-                    showNotification('Nuevo documento agregado', 'info');
-                } else if (payload.eventType === 'UPDATE') {
-                    setDocuments(prev => prev.map(doc =>
-                        doc.id === payload.new.id ? payload.new : doc
-                    ));
-                    showNotification('Documento actualizado', 'info');
-                } else if (payload.eventType === 'DELETE') {
-                    setDocuments(prev => prev.filter(doc => doc.id !== payload.old.id));
-                    showNotification('Documento eliminado', 'info');
-                }
-            })
-            .subscribe();
+        const setupRealTimeListeners = async () => {
+            try {
+                // Listener para cambios en documentos
+                documentsSubscription = supabase
+                    .channel('documents_realtime')
+                    .on('postgres_changes', {
+                        event: '*',
+                        schema: 'public',
+                        table: 'documents'
+                    }, (payload) => {
+                        console.log('Cambio en documentos:', payload);
 
-        // Listener para cambios en carpetas
-        const foldersSubscription = supabase
-            .channel('folders_changes')
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'folders'
-            }, (payload) => {
-                console.log('Cambio en carpetas:', payload);
+                        if (payload.eventType === 'INSERT') {
+                            setDocuments(prev => {
+                                const exists = prev.some(doc => doc.id === payload.new.id);
+                                if (!exists) {
+                                    return [payload.new, ...prev];
+                                }
+                                return prev;
+                            });
+                            showNotification('Nuevo documento agregado', 'info');
+                        } else if (payload.eventType === 'UPDATE') {
+                            setDocuments(prev => prev.map(doc =>
+                                doc.id === payload.new.id ? payload.new : doc
+                            ));
+                            showNotification('Documento actualizado', 'info');
+                        } else if (payload.eventType === 'DELETE') {
+                            setDocuments(prev => prev.filter(doc => doc.id !== payload.old.id));
+                            showNotification('Documento eliminado', 'info');
+                        }
+                    })
+                    .subscribe();
 
-                if (payload.eventType === 'INSERT') {
-                    setFolders(prev => [...prev, payload.new]);
-                    showNotification('Nueva carpeta creada', 'info');
-                } else if (payload.eventType === 'UPDATE') {
-                    setFolders(prev => prev.map(folder =>
-                        folder.id === payload.new.id ? payload.new : folder
-                    ));
-                    showNotification('Carpeta actualizada', 'info');
-                } else if (payload.eventType === 'DELETE') {
-                    setFolders(prev => prev.filter(folder => folder.id !== payload.old.id));
-                    showNotification('Carpeta eliminada', 'info');
+                // Listener para cambios en carpetas
+                foldersSubscription = supabase
+                    .channel('folders_realtime')
+                    .on('postgres_changes', {
+                        event: '*',
+                        schema: 'public',
+                        table: 'folders'
+                    }, (payload) => {
+                        console.log('Cambio en carpetas:', payload);
 
-                    // Si era la carpeta seleccionada, volver a root
-                    if (selectedFolder === payload.old.id) {
-                        setSelectedFolder('root');
-                    }
+                        if (payload.eventType === 'INSERT') {
+                            setFolders(prev => {
+                                const exists = prev.some(folder => folder.id === payload.new.id);
+                                if (!exists) {
+                                    return [...prev, payload.new];
+                                }
+                                return prev;
+                            });
+                            showNotification('Nueva carpeta creada', 'info');
+                        } else if (payload.eventType === 'UPDATE') {
+                            setFolders(prev => prev.map(folder =>
+                                folder.id === payload.new.id ? payload.new : folder
+                            ));
+                            showNotification('Carpeta actualizada', 'info');
+                        } else if (payload.eventType === 'DELETE') {
+                            setFolders(prev => prev.filter(folder => folder.id !== payload.old.id));
+                            showNotification('Carpeta eliminada', 'info');
 
-                    // Remover de carpetas expandidas
-                    setExpandedFolders(prev => {
-                        const newSet = new Set(prev);
-                        newSet.delete(payload.old.id);
-                        return newSet;
-                    });
-                }
-            })
-            .subscribe();
+                            // Si era la carpeta seleccionada, volver a root
+                            setSelectedFolder(current => {
+                                if (current === payload.old.id) {
+                                    return 'root';
+                                }
+                                return current;
+                            });
 
-        // Cleanup al desmontar el componente
-        return () => {
-            supabase.removeChannel(documentsSubscription);
-            supabase.removeChannel(foldersSubscription);
+                            // Remover de carpetas expandidas
+                            setExpandedFolders(prev => {
+                                const newSet = new Set(prev);
+                                newSet.delete(payload.old.id);
+                                return newSet;
+                            });
+                        }
+                    })
+                    .subscribe();
+
+            } catch (error) {
+                console.error('Error setting up real-time listeners:', error);
+            }
         };
-    }, [selectedFolder]);
+
+        setupRealTimeListeners();
+
+        return () => {
+            if (documentsSubscription) {
+                supabase.removeChannel(documentsSubscription);
+            }
+            if (foldersSubscription) {
+                supabase.removeChannel(foldersSubscription);
+            }
+        };
+    }, []);
 
     const isSystemFile = (fileName) => {
         const systemFiles = ['.emptyFolderPlaceholder', '.keep', '.gitkeep'];
@@ -339,33 +378,111 @@ const GestionDocumentosPage = () => {
 
     const createInitialStructure = async () => {
         try {
-            const initialFolder = {
-                id: 'root',
-                name: 'PLANTAS',
-                parent_id: null,
-                description: 'Carpeta raíz para documentos de plantas',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            };
+            setFolders([]);
+        } catch (error) {
+            console.error('Error creating initial structure:', error);
+            setFolders([]);
+        }
+    };
 
+    const handleSaveRename = async (folder) => {
+        if (!editingName.trim()) {
+            showNotification('El nombre no puede estar vacío', 'error');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
             const { error } = await supabase
                 .from('folders')
-                .upsert([initialFolder]);
+                .update({
+                    name: editingName.trim(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', folder.id);
 
             if (error) throw error;
 
-            setFolders([initialFolder]);
+            setEditingFolder(null);
+            setEditingName('');
+
+            showNotification('Carpeta renombrada exitosamente', 'success');
+
+            // Refresh silencioso después de 1 segundo para dar tiempo al tiempo real
+            setTimeout(() => {
+                refreshData(true);
+            }, 1000);
+
         } catch (error) {
-            console.error('Error creating initial structure:', error);
-            setFolders([{
-                id: 'root',
-                name: 'PLANTAS',
-                parent_id: null,
-                description: 'Carpeta raíz para documentos de plantas',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            }]);
+            console.error('Error renaming folder:', error);
+            showNotification('Error al renombrar carpeta: ' + error.message, 'error');
+            // En caso de error, hacer refresh inmediato
+            await refreshData(true);
+        } finally {
+            setIsUploading(false);
         }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingFolder(null);
+        setEditingName('');
+    };
+
+    const handleDeleteFolder = async (folder) => {
+        try {
+            // Verificar si la carpeta tiene archivos o subcarpetas
+            const { data: subfolders } = await supabase
+                .from('folders')
+                .select('id')
+                .eq('parent_id', folder.id);
+
+            const { data: files } = await supabase
+                .from('documents')
+                .select('id')
+                .eq('folder_id', folder.id);
+
+            if (subfolders?.length > 0 || files?.length > 0) {
+                showNotification('No se puede eliminar una carpeta que contiene archivos o subcarpetas', 'warning');
+                return;
+            }
+
+            const { error } = await supabase
+                .from('folders')
+                .delete()
+                .eq('id', folder.id);
+
+            if (error) throw error;
+
+            // También eliminar del storage si es necesario
+            const folderPath = getFolderStoragePath(folder.id);
+            if (folderPath) {
+                await supabase.storage
+                    .from('documents')
+                    .remove([`${folderPath}/.emptyFolderPlaceholder`]);
+            }
+
+            // Refresh automático después de la operación
+            await refreshData(true);
+
+            showNotification('Carpeta eliminada exitosamente', 'success');
+        } catch (error) {
+            console.error('Error deleting folder:', error);
+            showNotification('Error al eliminar carpeta: ' + error.message, 'error');
+        }
+    };
+
+    const startEditingFolder = (folder) => {
+        setEditingFolder(folder.id);
+        setEditingName(folder.name);
+        setShowFolderMenu(null);
+    };
+
+    const confirmDeleteFolder = (folder) => {
+        showConfirm(
+            `¿Estás seguro de que deseas eliminar la carpeta "${folder.name}"? Esta acción no se puede deshacer.`,
+            () => handleDeleteFolder(folder)
+        );
+        setShowFolderMenu(null);
     };
 
     const loadDocumentsFromSupabase = async () => {
@@ -536,6 +653,9 @@ const GestionDocumentosPage = () => {
             setShowUploadModal(false);
             setUploadForm({ files: [], category: '', plant: '', tags: [], description: '' });
 
+            // Refresh automático después de la operación
+            await refreshData(true);
+
             showNotification('Archivos subidos exitosamente', 'success');
         } catch (error) {
             console.error('Error uploading files:', error);
@@ -558,6 +678,9 @@ const GestionDocumentosPage = () => {
             setShowCreateFolderModal(false);
             setFolderForm({ name: '', description: '', parent: 'root', plant: '', category: '' });
 
+            // Refresh automático después de la operación
+            await refreshData(true);
+
             showNotification('Carpeta creada exitosamente', 'success');
         } catch (error) {
             console.error('Error creating folder:', error);
@@ -567,18 +690,25 @@ const GestionDocumentosPage = () => {
         }
     };
 
-    const refreshData = async () => {
-        setLoading(true);
+    const refreshData = async (silent = false) => {
+        if (!silent) setLoading(true);
+
         try {
             await Promise.all([
                 loadFoldersFromSupabase(),
                 loadDocumentsFromSupabase()
             ]);
-            await syncAllFromStorage();
+
+            if (!silent) {
+                showNotification('Datos actualizados', 'success');
+            }
         } catch (error) {
             console.error('Error refreshing data:', error);
+            if (!silent) {
+                showNotification('Error al actualizar datos: ' + error.message, 'error');
+            }
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
@@ -588,15 +718,52 @@ const GestionDocumentosPage = () => {
             try {
                 await loadFoldersFromSupabase();
                 await loadDocumentsFromSupabase();
-                await syncAllFromStorage();
+
+                // Solo sincronizar al inicio si es necesario
+                const shouldSync = documents.length === 0 && folders.length === 0;
+                if (shouldSync) {
+                    await syncAllFromStorage();
+                }
             } catch (error) {
                 console.error('Error initializing data:', error);
+                showNotification('Error al cargar datos: ' + error.message, 'error');
             } finally {
                 setLoading(false);
             }
         };
 
         initializeData();
+    }, []);
+
+    const handleManualRefresh = async () => {
+        await refreshData(false);
+        await syncAllFromStorage();
+    };
+
+    useEffect(() => {
+        // Auto-refresh cada 60 segundos (aumentamos el tiempo)
+        const autoRefreshInterval = setInterval(() => {
+            refreshData(true); // Silent refresh
+        }, 60000); // 60 segundos en lugar de 30
+
+        return () => {
+            clearInterval(autoRefreshInterval);
+        };
+    }, []);
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                // Refresh cuando la pestaña vuelve a estar activa
+                refreshData(true);
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     const handleDocumentSelection = (documentId, isSelected) => {
@@ -680,11 +847,14 @@ const GestionDocumentosPage = () => {
         const folderMap = new Map();
         const rootFolders = [];
 
-        folders.forEach(folder => {
+        // Filtrar carpetas que NO sean root
+        const regularFolders = folders.filter(folder => folder.id !== 'root');
+
+        regularFolders.forEach(folder => {
             folderMap.set(folder.id, { ...folder, children: [] });
         });
 
-        folders.forEach(folder => {
+        regularFolders.forEach(folder => {
             if (folder.parent_id === null || folder.parent_id === 'root') {
                 rootFolders.push(folderMap.get(folder.id));
             } else {
@@ -749,22 +919,23 @@ const GestionDocumentosPage = () => {
         const isExpanded = expandedFolders.has(folder.id);
         const isSelected = selectedFolder === folder.id;
         const hasChildren = folder.children && folder.children.length > 0;
+        const isEditing = editingFolder === folder.id;
 
         return (
             <div key={folder.id}>
                 <div
-                    className={`flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''
-                        }`}
+                    className={`group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors relative ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''}`}
                     style={{ paddingLeft: `${level * 16 + 8}px` }}
-                    onClick={() => selectFolder(folder.id)}
+                    onClick={!isEditing ? () => selectFolder(folder.id) : undefined}
                 >
                     {hasChildren ? (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                toggleFolder(folder.id);
+                                if (!isEditing) toggleFolder(folder.id);
                             }}
                             className="p-1 hover:bg-gray-200 rounded transition-colors"
+                            disabled={isEditing}
                         >
                             {isExpanded ?
                                 <ChevronDown size={14} className="text-gray-600" /> :
@@ -781,10 +952,88 @@ const GestionDocumentosPage = () => {
                         <Folder size={16} className="text-yellow-600" />
                     )}
 
-                    <span className={`text-sm truncate flex-1 ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'
-                        }`}>
-                        {folder.name}
-                    </span>
+                    {isEditing ? (
+                        <div className="flex items-center gap-2 flex-1">
+                            <input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleSaveRename(folder);
+                                    } else if (e.key === 'Escape') {
+                                        handleCancelEdit();
+                                    }
+                                }}
+                                className="flex-1 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSaveRename(folder);
+                                }}
+                                className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors cursor-pointer"
+                            >
+                                <Check size={14} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancelEdit();
+                                }}
+                                className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors cursor-pointer"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    ) : (
+                        <>
+                            <span className={`text-sm truncate flex-1 ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>
+                                {folder.name}
+                            </span>
+
+                            {/* Menú de tres puntos que aparece en hover */}
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors cursor-pointer"
+                                >
+                                    <MoreVertical size={14} className="text-gray-500" />
+                                </button>
+
+                                {/* Menú contextual */}
+                                {showFolderMenu === folder.id && (
+                                    <div className="absolute right-2 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[120px]">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                startEditingFolder(folder);
+                                            }}
+                                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                                        >
+                                            <Pencil size={14} />
+                                            Renombrar
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                confirmDeleteFolder(folder);
+                                            }}
+                                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                                        >
+                                            <Trash2 size={14} />
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {isExpanded && hasChildren && (
@@ -798,6 +1047,19 @@ const GestionDocumentosPage = () => {
             </div>
         );
     };
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (showFolderMenu) {
+                setShowFolderMenu(null);
+            }
+        };
+
+        document.addEventListener('click', handleClickOutside);
+        return () => {
+            document.removeEventListener('click', handleClickOutside);
+        };
+    }, [showFolderMenu]);
 
     const getBreadcrumb = (folderId) => {
         if (folderId === 'root') return 'PLANTAS';
@@ -941,7 +1203,7 @@ const GestionDocumentosPage = () => {
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={refreshData}
+                        onClick={handleManualRefresh}
                         disabled={loading}
                         className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50 cursor-pointer"
                     >
@@ -954,15 +1216,24 @@ const GestionDocumentosPage = () => {
             {/* Contenido principal */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
-                <div className="w-80 border-r border-gray-200 bg-white overflow-y-auto">
+                <div
+                    className="w-80 border-r border-gray-200 bg-white overflow-y-auto"
+                    onClick={handleBackgroundClick}
+                >
                     <div className="p-4">
                         <div className="flex items-center justify-between mb-4">
                             <div className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                                 <Folder size={16} className="text-yellow-600" />
                                 {folders.find(f => f.id === 'root')?.name || 'PLANTAS'}
                             </div>
+                            <button
+                                onClick={() => setShowCreateFolderModal(true)}
+                                className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                                title="Crear nueva carpeta"
+                            >
+                                <Plus size={16} />
+                            </button>
                         </div>
-
                         <div className="space-y-1">
                             {folderHierarchy.map(folder => (
                                 <div key={folder.id} className="group">
@@ -972,6 +1243,81 @@ const GestionDocumentosPage = () => {
                         </div>
                     </div>
                 </div>
+
+                {showCreateFolderModal && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+                            <div className="p-6">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="text-lg font-semibold text-gray-900">Crear Nueva Carpeta</h3>
+                                    <button
+                                        onClick={() => setShowCreateFolderModal(false)}
+                                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-100 rounded-md">
+                                                <Folder size={16} className="text-blue-600" />
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-blue-900">
+                                                    Carpeta padre
+                                                </div>
+                                                <div className="text-sm text-blue-700">
+                                                    {getBreadcrumb(selectedFolder)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Nombre de la carpeta *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={folderForm.name}
+                                            onChange={(e) => setFolderForm(prev => ({ ...prev, name: e.target.value }))}
+                                            placeholder="Ingresa el nombre de la carpeta"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 mt-6">
+                                    <button
+                                        onClick={() => setShowCreateFolderModal(false)}
+                                        className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleCreateFolder}
+                                        disabled={!folderForm.name.trim() || isUploading}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                    >
+                                        {isUploading ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Creando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                Crear Carpeta
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Panel derecho - Lista de archivos */}
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -1384,13 +1730,13 @@ const GestionDocumentosPage = () => {
                             <div className="flex justify-end gap-3">
                                 <button
                                     onClick={handleCancelConfirm}
-                                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     onClick={handleConfirm}
-                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors cursor-pointer"
                                 >
                                     Eliminar
                                 </button>
