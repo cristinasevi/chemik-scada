@@ -22,7 +22,6 @@ const Navbar = () => {
     { icon: Home, label: "Inicio", path: "/" },
     { icon: Activity, label: "La Maja", path: "/lamaja" },
     { icon: Activity, label: "Retamar", path: "/retamar" },
-    { icon: FileText, label: "Gestión de Documentos", path: "/gestion-documentos" },
   ];
 
   // Submenú para La Maja
@@ -56,6 +55,7 @@ const Navbar = () => {
                      "/exportacion-variables";
 
     return [
+      { icon: FileText, label: "Gestión de Documentos", path: "/gestion-documentos" },
       { icon: Download, label: "Exportación de variables", path: exportPath },
       ...(isAdmin ? [{ icon: Users, label: "Usuarios", path: "/usuarios" }] : [])
     ];

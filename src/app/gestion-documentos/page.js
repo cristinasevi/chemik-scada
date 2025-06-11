@@ -30,12 +30,100 @@ const GestionDocumentosPage = () => {
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [googleAuthInstance, setGoogleAuthInstance] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [authToken, setAuthToken] = useState(null);
 
-    // Configuración de Google Drive API - ACTUALIZADO CON PERMISOS DE ESCRITURA
+    // Configuración de Google Drive API
     const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
     const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-    const SCOPES = 'https://www.googleapis.com/auth/drive'; // Cambiado para incluir escritura
+    const SCOPES = 'https://www.googleapis.com/auth/drive';
+
+    // Clave para sessionStorage
+    const STORAGE_KEY = 'google_drive_session';
+
+    // ===== FUNCIONES DE PERSISTENCIA =====
+
+    // Guardar token con persistencia temporal
+    const saveAuthToken = (token) => {
+        setAuthToken(token);
+        console.log('✅ Token guardado en memoria');
+
+        // Intentar guardar en sessionStorage para persistencia durante la sesión
+        try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                const sessionData = {
+                    token: token,
+                    timestamp: Date.now(),
+                    expiresIn: 3600000 // 1 hora en milisegundos
+                };
+                window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
+                console.log('✅ Token guardado en sessionStorage');
+            }
+        } catch (error) {
+            console.log('⚠️ SessionStorage no disponible, solo memoria');
+        }
+    };
+
+    // Cargar token al inicio
+    const loadStoredToken = () => {
+        try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                const stored = window.sessionStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    const sessionData = JSON.parse(stored);
+                    const now = Date.now();
+
+                    // Verificar si el token no ha expirado (1 hora)
+                    if (now - sessionData.timestamp < sessionData.expiresIn) {
+                        console.log('🔄 Token encontrado en sessionStorage');
+                        setAuthToken(sessionData.token);
+                        return sessionData.token;
+                    } else {
+                        console.log('⏰ Token en storage expirado, limpiando...');
+                        window.sessionStorage.removeItem(STORAGE_KEY);
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('⚠️ Error cargando token del storage:', error);
+        }
+        return null;
+    };
+
+    // Limpiar token almacenado
+    const clearStoredToken = () => {
+        setAuthToken(null);
+        try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                window.sessionStorage.removeItem(STORAGE_KEY);
+                console.log('🗑️ Token limpiado del sessionStorage');
+            }
+        } catch (error) {
+            console.log('⚠️ Error limpiando storage');
+        }
+    };
+
+    // Verificar si el token sigue siendo válido
+    const isTokenValid = async (token) => {
+        try {
+            const response = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
+            return response.ok;
+        } catch (error) {
+            console.error('Error verificando token:', error);
+            return false;
+        }
+    };
+
+    // Configurar GAPI con token existente
+    const setGapiToken = (token) => {
+        if (window.gapi && window.gapi.auth) {
+            window.gapi.auth.setToken({
+                access_token: token
+            });
+            return true;
+        }
+        return false;
+    };
 
     // Estados para formularios
     const [uploadForm, setUploadForm] = useState({
@@ -55,6 +143,60 @@ const GestionDocumentosPage = () => {
     });
 
     // ===== FUNCIONES PRINCIPALES =====
+
+    // Función para intentar login automático
+    const tryAutoLogin = async () => {
+        // Primero intentar cargar token almacenado si no hay uno en memoria
+        let tokenToUse = authToken;
+        if (!tokenToUse) {
+            tokenToUse = loadStoredToken();
+        }
+
+        if (!tokenToUse) {
+            console.log('No hay token para auto-login');
+            loadDefaultStructure();
+            return;
+        }
+
+        console.log('🔄 Intentando auto-login...');
+        setIsGoogleLoading(true);
+
+        try {
+            // Verificar si el token es válido
+            const isValid = await isTokenValid(tokenToUse);
+
+            if (isValid) {
+                console.log('✅ Token válido, configurando GAPI...');
+
+                // Configurar GAPI con el token
+                if (setGapiToken(tokenToUse)) {
+                    // Asegurar que el token esté en memoria si vino del storage
+                    if (!authToken) {
+                        setAuthToken(tokenToUse);
+                    }
+
+                    setIsGoogleAuth(true);
+                    setIsGoogleLoading(false);
+                    await loadGoogleDriveFilesWithToken(tokenToUse);
+                    console.log('✅ Auto-login exitoso');
+                } else {
+                    throw new Error('No se pudo configurar GAPI');
+                }
+            } else {
+                console.log('❌ Token expirado, requiere nueva autenticación');
+                clearStoredToken();
+                setIsGoogleAuth(false);
+                setIsGoogleLoading(false);
+                loadDefaultStructure();
+            }
+        } catch (error) {
+            console.error('❌ Error en auto-login:', error);
+            clearStoredToken();
+            setIsGoogleAuth(false);
+            setIsGoogleLoading(false);
+            loadDefaultStructure();
+        }
+    };
 
     // Función para cargar estructura por defecto
     const loadDefaultStructure = () => {
@@ -86,29 +228,93 @@ const GestionDocumentosPage = () => {
             const client = window.google.accounts.oauth2.initTokenClient({
                 client_id: GOOGLE_CLIENT_ID,
                 scope: SCOPES,
-                callback: (response) => {
+                callback: async (response) => {
                     console.log('Token recibido:', !!response.access_token);
                     if (response.access_token) {
+                        // Guardar token con persistencia
+                        saveAuthToken(response.access_token);
+
+                        // Configurar GAPI con el token
+                        setGapiToken(response.access_token);
+
+                        // Actualizar estados
                         setIsGoogleAuth(true);
                         setIsGoogleLoading(false);
-                        loadGoogleDriveFiles();
+
+                        // Cargar archivos con el token ya guardado
+                        try {
+                            await loadGoogleDriveFilesWithToken(response.access_token);
+                        } catch (error) {
+                            console.error('Error cargando archivos después del login:', error);
+                            setIsGoogleAuth(false);
+                            clearStoredToken();
+                            loadDefaultStructure();
+                        }
                     }
                 },
                 error_callback: (error) => {
                     console.error('Error en callback:', error);
                     setIsGoogleAuth(false);
                     setIsGoogleLoading(false);
+                    clearStoredToken();
+                    loadDefaultStructure();
                 }
             });
 
             setGoogleAuthInstance(client);
             console.log('✅ Google Identity configurado correctamente');
-            loadDefaultStructure();
+
+            // Intentar auto-login (ahora verificará storage automáticamente)
+            tryAutoLogin();
 
         } catch (error) {
             console.error('Error configurando Google Identity:', error);
             loadDefaultStructure();
         }
+    };
+
+    // Función para cargar archivos con token específico
+    const loadGoogleDriveFilesWithToken = async (token) => {
+        setLoading(true);
+        try {
+            console.log('Cargando archivos de Google Drive con token...');
+
+            if (!token) {
+                throw new Error('No hay token de autenticación');
+            }
+
+            // Buscar carpeta PLANTAS en Google Drive
+            const plantasResponse = await window.gapi.client.drive.files.list({
+                q: "name='PLANTAS' and mimeType='application/vnd.google-apps.folder'",
+                fields: 'files(id, name, parents)'
+            });
+
+            let plantasFolderId = null;
+            if (plantasResponse.result.files.length > 0) {
+                plantasFolderId = plantasResponse.result.files[0].id;
+                console.log('Carpeta PLANTAS encontrada:', plantasFolderId);
+            } else {
+                console.log('Carpeta PLANTAS no encontrada, usando raíz');
+            }
+
+            // Si no existe PLANTAS, usar la raíz
+            const rootFolderId = plantasFolderId || 'root';
+
+            // Cargar estructura de carpetas y archivos
+            await loadFolderStructure(rootFolderId, 'root', 'PLANTAS');
+
+        } catch (error) {
+            console.error('Error loading Google Drive files:', error);
+
+            // Si es error de autenticación, limpiar estado y storage
+            if (error.status === 401 || error.message.includes('autenticación')) {
+                clearStoredToken();
+                setIsGoogleAuth(false);
+            }
+
+            loadDefaultStructure();
+        }
+        setLoading(false);
     };
 
     // Función para hacer login en Google
@@ -136,8 +342,8 @@ const GestionDocumentosPage = () => {
     // Función para hacer logout de Google
     const signOutFromGoogle = () => {
         // Revocar token
-        if (window.google?.accounts?.oauth2) {
-            window.google.accounts.oauth2.revoke('', () => {
+        if (window.google?.accounts?.oauth2 && authToken) {
+            window.google.accounts.oauth2.revoke(authToken, () => {
                 console.log('Token revocado');
             });
         }
@@ -145,15 +351,19 @@ const GestionDocumentosPage = () => {
         setIsGoogleAuth(false);
         setGoogleAuthInstance(null);
         setIsGoogleLoading(false);
+        clearStoredToken(); // Usar la nueva función de limpieza
         loadDefaultStructure();
     };
-
-    // ===== NUEVAS FUNCIONES DE SUBIDA =====
 
     // Función para subir archivo a Google Drive
     const uploadFileToGoogleDrive = async (file, parentFolderId = null) => {
         try {
             console.log('Subiendo archivo:', file.name);
+
+            const currentToken = authToken;
+            if (!currentToken) {
+                throw new Error('No hay token de autenticación');
+            }
 
             // Obtener el ID de la carpeta padre
             const targetFolderId = parentFolderId || getCurrentFolderGoogleId();
@@ -169,16 +379,22 @@ const GestionDocumentosPage = () => {
             form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
             form.append('file', file);
 
-            // Subir archivo
+            // Subir archivo usando el token guardado
             const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
                 method: 'POST',
                 headers: new Headers({
-                    'Authorization': `Bearer ${window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token}`
+                    'Authorization': `Bearer ${currentToken}`
                 }),
                 body: form
             });
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    // Token expirado
+                    clearStoredToken();
+                    setIsGoogleAuth(false);
+                    throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
+                }
                 throw new Error(`Error al subir archivo: ${response.status}`);
             }
 
@@ -215,6 +431,12 @@ const GestionDocumentosPage = () => {
             return response.result;
 
         } catch (error) {
+            if (error.status === 401) {
+                // Token expirado
+                clearStoredToken();
+                setIsGoogleAuth(false);
+                throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
+            }
             console.error('Error creando carpeta:', error);
             throw error;
         }
@@ -234,7 +456,7 @@ const GestionDocumentosPage = () => {
 
     // Handler para subir archivos
     const handleFileUpload = async (files) => {
-        if (!isGoogleAuth) {
+        if (!isGoogleAuth || !authToken) {
             alert('Conecta tu cuenta de Google Drive primero');
             return;
         }
@@ -254,6 +476,12 @@ const GestionDocumentosPage = () => {
         } catch (error) {
             console.error('Error subiendo archivos:', error);
             alert('Error al subir archivos: ' + error.message);
+
+            // Si es error de autenticación, limpiar estado
+            if (error.message.includes('Sesión expirada')) {
+                clearStoredToken();
+                setIsGoogleAuth(false);
+            }
         } finally {
             setIsUploading(false);
         }
@@ -261,7 +489,7 @@ const GestionDocumentosPage = () => {
 
     // Handler para crear carpeta
     const handleCreateFolder = async () => {
-        if (!isGoogleAuth) {
+        if (!isGoogleAuth || !authToken) {
             alert('Conecta tu cuenta de Google Drive primero');
             return;
         }
@@ -285,6 +513,12 @@ const GestionDocumentosPage = () => {
         } catch (error) {
             console.error('Error creando carpeta:', error);
             alert('Error al crear carpeta: ' + error.message);
+
+            // Si es error de autenticación, limpiar estado
+            if (error.message.includes('Sesión expirada')) {
+                clearStoredToken();
+                setIsGoogleAuth(false);
+            }
         } finally {
             setIsUploading(false);
         }
@@ -292,35 +526,13 @@ const GestionDocumentosPage = () => {
 
     // Función para cargar archivos de Google Drive
     const loadGoogleDriveFiles = async () => {
-        setLoading(true);
-        try {
-            console.log('Cargando archivos de Google Drive...');
-
-            // Buscar carpeta PLANTAS en Google Drive
-            const plantasResponse = await window.gapi.client.drive.files.list({
-                q: "name='PLANTAS' and mimeType='application/vnd.google-apps.folder'",
-                fields: 'files(id, name, parents)'
-            });
-
-            let plantasFolderId = null;
-            if (plantasResponse.result.files.length > 0) {
-                plantasFolderId = plantasResponse.result.files[0].id;
-                console.log('Carpeta PLANTAS encontrada:', plantasFolderId);
-            } else {
-                console.log('Carpeta PLANTAS no encontrada, usando raíz');
-            }
-
-            // Si no existe PLANTAS, usar la raíz
-            const rootFolderId = plantasFolderId || 'root';
-
-            // Cargar estructura de carpetas y archivos
-            await loadFolderStructure(rootFolderId, 'root', 'PLANTAS');
-
-        } catch (error) {
-            console.error('Error loading Google Drive files:', error);
+        if (!authToken) {
+            console.log('No hay token guardado, cargando estructura por defecto');
             loadDefaultStructure();
+            return;
         }
-        setLoading(false);
+
+        await loadGoogleDriveFilesWithToken(authToken);
     };
 
     // Función para cargar estructura de carpetas
@@ -411,8 +623,31 @@ const GestionDocumentosPage = () => {
 
         } catch (error) {
             console.error('Error loading folder structure:', error);
+
+            // Si es error de autenticación, limpiar estado y storage
+            if (error.status === 401) {
+                clearStoredToken();
+                setIsGoogleAuth(false);
+            }
         }
     };
+
+    // ===== EFECTOS =====
+
+    // Efecto para cargar token al montar el componente
+    useEffect(() => {
+        console.log('🔄 Componente montado, cargando token almacenado...');
+
+        // Cargar token del storage al inicio
+        const storedToken = loadStoredToken();
+        if (storedToken) {
+            console.log('🔍 Token encontrado en storage, se usará en auto-login');
+        }
+    }, []);
+
+    useEffect(() => {
+        console.log('🔍 Token actual:', authToken ? 'Presente' : 'Ausente');
+    }, [authToken]);
 
     // Función para descargar archivo de Google Drive
     const downloadGoogleDriveFile = async (document) => {
@@ -426,8 +661,6 @@ const GestionDocumentosPage = () => {
             window.open(`https://drive.google.com/file/d/${document.googleId}/view`, '_blank');
         }
     };
-
-    // ===== INICIALIZACIÓN =====
 
     // Inicializar Google API
     useEffect(() => {
@@ -669,15 +902,15 @@ const GestionDocumentosPage = () => {
         }
     };
 
-    // ===== RENDER =====
-
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="text-center">
                     <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
                     <p className="text-secondary text-sm">
-                        {isGoogleLoading ? 'Conectando con Google Drive...' : 'Cargando documentos...'}
+                        {isGoogleLoading ? 'Conectando con Google Drive...' :
+                            authToken ? 'Cargando archivos de Google Drive...' :
+                                'Inicializando...'}
                     </p>
                 </div>
             </div>
@@ -726,26 +959,26 @@ const GestionDocumentosPage = () => {
                             <>
                                 <button
                                     onClick={loadGoogleDriveFiles}
-                                    className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 cursor-pointer"
+                                    className="flex items-center gap-2 px-3 py-2 text-sm text-blue-500 hover:text-blue-600 rounded cursor-pointer"
                                     title="Sincronizar"
                                 >
                                     <RefreshCw size={14} />
                                 </button>
-                                <button
-                                    onClick={signOutFromGoogle}
-                                    className="px-3 py-2 text-sm bg-red-500 text-white rounded hover:bg-red-600 cursor-pointer"
-                                >
-                                    Desconectar
-                                </button>
                             </>
                         ) : (
-                            <button
-                                onClick={signInToGoogle}
-                                disabled={isGoogleLoading}
-                                className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
-                            >
-                                {isGoogleLoading ? 'Conectando...' : 'Conectar Google Drive'}
-                            </button>
+                            <>
+                                <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">
+                                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                                    <span>Google Drive desconectado</span>
+                                </div>
+                                <button
+                                    onClick={signInToGoogle}
+                                    disabled={isGoogleLoading}
+                                    className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 cursor-pointer disabled:opacity-50"
+                                >
+                                    {isGoogleLoading ? 'Conectando...' : 'Conectar Google Drive'}
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -898,6 +1131,10 @@ const GestionDocumentosPage = () => {
                                         <>
                                             <FileText size={48} className="mx-auto text-secondary mb-4" />
                                             <h3 className="text-lg font-medium text-primary mb-2">Sin documentos</h3>
+                                            {/* En la sección de "Sin documentos", agregar: */}
+                                            <p className="text-xs text-secondary">
+                                                La sesión se mantendrá activa automáticamente
+                                            </p>
                                             <p className="text-secondary">
                                                 Conecta tu Google Drive para ver tus archivos
                                             </p>

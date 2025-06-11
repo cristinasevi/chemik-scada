@@ -6,14 +6,16 @@ export default function RetamarPage() {
     <div className="w-full">
       <div className="w-full">
         <GrafanaEmbed 
-          height="140vh"
+          height="155vh"
           from="now/d"
           to="now"
-          className="w-full h-full"
+          className="w-full"
         />
       </div>
       
-      <RetamarAlarmsTable />
+      <div className="w-full">
+        <RetamarAlarmsTable />
+      </div>
     </div>
   );
 }

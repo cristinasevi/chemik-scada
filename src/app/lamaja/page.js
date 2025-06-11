@@ -6,14 +6,16 @@ export default function LamajaPage() {
     <div className="w-full">
       <div className="w-full">
         <GrafanaEmbed 
-          height="132vh"
+          height="150vh"
           from="now/d"
           to="now"
-          className="w-full h-full"
+          className="w-full"
         />
       </div>
       
-      <LaMajaAlarmsTable />
+      <div className="w-full">
+        <LaMajaAlarmsTable />
+      </div>
     </div>
   );
 }
