@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import {
-    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Eye, Search,
-    Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle,
-    CheckCircle, XCircle, AlertTriangle, Pencil, Check
+    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search,
+    Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { createClient } from '@supabase/supabase-js';
@@ -24,10 +23,7 @@ const GestionDocumentosPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('name');
     const [sortOrder, setSortOrder] = useState('asc');
-    const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
-    const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
-    const [selectedDocument, setSelectedDocument] = useState(null);
     const [selectedDocuments, setSelectedDocuments] = useState(new Set());
     const [isUploading, setIsUploading] = useState(false);
     const [syncStatus, setSyncStatus] = useState({ syncing: false, message: '' });
@@ -37,6 +33,8 @@ const GestionDocumentosPage = () => {
     const [showFolderMenu, setShowFolderMenu] = useState(null);
     const [editingFolder, setEditingFolder] = useState(null);
     const [editingName, setEditingName] = useState('');
+    const [creatingNewFolder, setCreatingNewFolder] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
 
     // Estados para formularios
     const [uploadForm, setUploadForm] = useState({
@@ -45,14 +43,6 @@ const GestionDocumentosPage = () => {
         plant: '',
         tags: [],
         description: ''
-    });
-
-    const [folderForm, setFolderForm] = useState({
-        name: '',
-        description: '',
-        parent: 'root',
-        plant: '',
-        category: ''
     });
 
     // Sistema de notificaciones
@@ -196,6 +186,39 @@ const GestionDocumentosPage = () => {
             }
         };
     }, []);
+
+    const startCreatingFolder = () => {
+        setCreatingNewFolder(true);
+        setNewFolderName('');
+    };
+
+    const handleSaveNewFolder = async () => {
+        if (!newFolderName.trim()) {
+            showNotification('Ingresa un nombre para la carpeta', 'error');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            await createFolderInSupabase(newFolderName.trim(), selectedFolder);
+
+            setCreatingNewFolder(false);
+            setNewFolderName('');
+
+            await refreshData(true);
+            showNotification('Carpeta creada correctamente', 'success');
+        } catch (error) {
+            console.error('Error creating folder:', error);
+            showNotification('Error al crear carpeta: ' + error.message, 'error');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleCancelNewFolder = () => {
+        setCreatingNewFolder(false);
+        setNewFolderName('');
+    };
 
     const isSystemFile = (fileName) => {
         const systemFiles = ['.emptyFolderPlaceholder', '.keep', '.gitkeep'];
@@ -390,29 +413,113 @@ const GestionDocumentosPage = () => {
             return;
         }
 
+        if (editingName.trim() === folder.name) {
+            setEditingFolder(null);
+            setEditingName('');
+            return;
+        }
+
         setIsUploading(true);
         try {
-            const { error } = await supabase
+            const oldName = folder.name;
+            const newName = editingName.trim();
+
+            const oldStoragePath = getFolderStoragePath(folder.id);
+
+            let newStoragePath = '';
+            if (folder.parent_id) {
+                const parentPath = getFolderStoragePath(folder.parent_id);
+                newStoragePath = parentPath ? `${parentPath}/${newName}` : newName;
+            } else {
+                newStoragePath = newName;
+            }
+
+            const { data: allFiles, error: listError } = await supabase.storage
+                .from('documents')
+                .list(oldStoragePath, { limit: 1000 });
+
+            if (listError && !listError.message.includes('not found')) {
+                throw new Error(`Error listando archivos: ${listError.message}`);
+            }
+
+            const filesToMove = allFiles || [];
+
+            if (filesToMove.length > 0) {
+                for (const file of filesToMove) {
+                    if (file.name === '.emptyFolderPlaceholder') continue;
+
+                    const oldFilePath = oldStoragePath ? `${oldStoragePath}/${file.name}` : file.name;
+                    const newFilePath = newStoragePath ? `${newStoragePath}/${file.name}` : file.name;
+
+                    const { error: moveError } = await supabase.storage
+                        .from('documents')
+                        .move(oldFilePath, newFilePath);
+
+                    if (moveError) {
+                        console.warn(`Error moviendo ${file.name}:`, moveError);
+                    }
+                }
+            }
+
+            if (newStoragePath) {
+                await createFolderInStorage(newStoragePath);
+            }
+
+            const { error: dbError } = await supabase
                 .from('folders')
                 .update({
-                    name: editingName.trim(),
+                    name: newName,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', folder.id);
 
-            if (error) throw error;
+            if (dbError) throw dbError;
+
+            if (filesToMove.length > 0) {
+                for (const file of filesToMove) {
+                    if (file.name === '.emptyFolderPlaceholder') continue;
+
+                    const newFilePath = newStoragePath ? `${newStoragePath}/${file.name}` : file.name;
+
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('documents')
+                        .getPublicUrl(newFilePath);
+
+                    await supabase
+                        .from('documents')
+                        .update({
+                            file_path: newFilePath,
+                            file_url: publicUrl,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('folder_id', folder.id);
+                }
+            }
+
+            try {
+                if (oldStoragePath) {
+                    await supabase.storage
+                        .from('documents')
+                        .remove([`${oldStoragePath}/.emptyFolderPlaceholder`]);
+                }
+            } catch (cleanupError) {
+                console.warn('Error limpiando carpeta anterior:', cleanupError);
+            }
 
             setEditingFolder(null);
             setEditingName('');
+            showNotification('Carpeta renombrada correctamente', 'success');
 
-            showNotification('Carpeta renombrada exitosamente', 'success');
-
-            refreshData(true);
+            await refreshData(true);
 
         } catch (error) {
             console.error('Error renaming folder:', error);
             showNotification('Error al renombrar carpeta: ' + error.message, 'error');
+
             await refreshData(true);
+
+            setEditingFolder(null);
+            setEditingName('');
         } finally {
             setIsUploading(false);
         }
@@ -458,7 +565,7 @@ const GestionDocumentosPage = () => {
 
             await refreshData(true);
 
-            showNotification('Carpeta eliminada exitosamente', 'success');
+            showNotification('Carpeta eliminada correctamente', 'success');
         } catch (error) {
             console.error('Error deleting folder:', error);
             showNotification('Error al eliminar carpeta: ' + error.message, 'error');
@@ -621,9 +728,9 @@ const GestionDocumentosPage = () => {
                 id: folderId,
                 name: folderName,
                 parent_id: parentId === 'root' ? null : parentId,
-                description: folderForm.description || '',
-                category: folderForm.category || '',
-                plant: folderForm.plant || '',
+                description: '',
+                category: '',
+                plant: '',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -641,13 +748,11 @@ const GestionDocumentosPage = () => {
             let folderStoragePath = '';
 
             if (parentId !== 'root') {
-                // Construir la ruta del padre manualmente
                 const parentPath = getFolderStoragePath(parentId);
                 folderStoragePath = parentPath ? `${parentPath}/${folderName}` : folderName;
             } else {
                 folderStoragePath = folderName;
             }
-
 
             if (folderStoragePath) {
                 await createFolderInStorage(folderStoragePath);
@@ -658,6 +763,47 @@ const GestionDocumentosPage = () => {
             console.error('Error creating folder:', error);
             throw error;
         }
+    };
+
+    const handleDeleteDocument = async (document) => {
+        try {
+            // Eliminar archivo del storage
+            const { error: storageError } = await supabase.storage
+                .from('documents')
+                .remove([document.file_path]);
+
+            if (storageError) {
+                console.warn('Error eliminando archivo del storage:', storageError);
+            }
+
+            // Eliminar registro de la base de datos
+            const { error: dbError } = await supabase
+                .from('documents')
+                .delete()
+                .eq('id', document.id);
+
+            if (dbError) throw dbError;
+
+            // Remover de seleccionados si estaba seleccionado
+            setSelectedDocuments(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(document.id);
+                return newSet;
+            });
+
+            await refreshData(true);
+            showNotification('Documento eliminado correctamente', 'success');
+        } catch (error) {
+            console.error('Error deleting document:', error);
+            showNotification('Error al eliminar documento: ' + error.message, 'error');
+        }
+    };
+
+    const confirmDeleteDocument = (document) => {
+        showConfirm(
+            `¿Estás seguro de que deseas eliminar el archivo "${document.name}"? Esta acción no se puede deshacer.`,
+            () => handleDeleteDocument(document)
+        );
     };
 
     const handleFileUpload = async (files) => {
@@ -675,7 +821,7 @@ const GestionDocumentosPage = () => {
             // Refresh automático después de la operación
             await refreshData(true);
 
-            showNotification('Archivos subidos exitosamente', 'success');
+            showNotification('Archivos subidos correctamente', 'success');
         } catch (error) {
             console.error('Error uploading files:', error);
             showNotification('Error al subir archivos: ' + error.message, 'error');
@@ -700,7 +846,7 @@ const GestionDocumentosPage = () => {
             // Refresh automático después de la operación
             await refreshData(true);
 
-            showNotification('Carpeta creada exitosamente', 'success');
+            showNotification('Carpeta creada correctamente', 'success');
         } catch (error) {
             console.error('Error creating folder:', error);
             showNotification('Error al crear carpeta: ' + error.message, 'error');
@@ -798,7 +944,7 @@ const GestionDocumentosPage = () => {
         }
     };
 
-    const downloadSelectedDocuments = () => {
+    const downloadSelectedDocuments = async () => {
         const documentsToDownload = sortedDocuments.filter(doc => selectedDocuments.has(doc.id));
 
         if (documentsToDownload.length === 0) {
@@ -806,12 +952,66 @@ const GestionDocumentosPage = () => {
             return;
         }
 
-        documentsToDownload.forEach(document => {
-            setTimeout(() => handleDownload(document), 100);
-        });
+        // Si es solo un archivo, descarga normal
+        if (documentsToDownload.length === 1) {
+            handleDownload(documentsToDownload[0]);
+        } else {
+            // Si son múltiples archivos, crear ZIP
+            await downloadAsZip(documentsToDownload);
+        }
 
         setSelectedDocuments(new Set());
-        showNotification(`Descargando ${documentsToDownload.length} archivo(s)`, 'success');
+    };
+
+    const downloadAsZip = async (documentsToDownload) => {
+        try {
+            // Importar JSZip dinámicamente
+            const JSZip = (await import('jszip')).default;
+            const zip = new JSZip();
+
+            // Descargar todos los archivos y agregarlos al ZIP
+            const downloadPromises = documentsToDownload.map(async (doc) => {
+                try {
+                    const response = await fetch(doc.file_url);
+                    if (!response.ok) {
+                        throw new Error(`Error descargando ${doc.name}`);
+                    }
+                    const blob = await response.blob();
+                    zip.file(doc.original_name || doc.name, blob);
+                } catch (error) {
+                    console.error(`Error con archivo ${doc.name}:`, error);
+                    // Continuar con otros archivos aunque uno falle
+                }
+            });
+
+            await Promise.all(downloadPromises);
+
+            // Generar el ZIP
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+            // Crear enlace de descarga para el ZIP
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(zipBlob);
+            link.href = url;
+
+            // Nombre del archivo ZIP con fecha
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            link.download = `documentos_${dateStr}.zip`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Limpiar URL object
+            URL.revokeObjectURL(url);
+
+            showNotification(`ZIP descargado con ${documentsToDownload.length} archivo(s)`, 'success');
+
+        } catch (error) {
+            console.error('Error creating ZIP:', error);
+            showNotification('Error al crear el archivo ZIP: ' + error.message, 'error');
+        }
     };
 
     const formatFileSize = (bytes) => {
@@ -1092,94 +1292,18 @@ const GestionDocumentosPage = () => {
     };
 
     const handleDownload = (doc) => {
-        const link = window.document.createElement('a');
+        const link = document.createElement('a');
         link.href = doc.file_url;
         link.download = doc.original_name || doc.name;
-        link.target = '_blank';
-        window.document.body.appendChild(link);
+        link.style.display = 'none';
+
+        document.body.appendChild(link);
         link.click();
-        window.document.body.removeChild(link);
-    };
 
-    const getFilePreview = (document) => {
-        const fileExtension = document.name.split('.').pop()?.toLowerCase();
-        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExtension);
-        const isPdf = fileExtension === 'pdf';
-        const isText = ['txt', 'md', 'json', 'csv', 'xml', 'log'].includes(fileExtension);
-        const isCode = ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py', 'java', 'cpp', 'c', 'php', 'rb'].includes(fileExtension);
-        const isVideo = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(fileExtension);
-        const isAudio = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(fileExtension);
-
-        if (isImage) {
-            return (
-                <div className="flex justify-center">
-                    <img
-                        src={document.file_url}
-                        alt={document.name}
-                        className="max-w-full max-h-96 object-contain rounded"
-                        onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'block';
-                        }}
-                    />
-                    <div style={{ display: 'none' }} className="text-center p-8 text-gray-500">
-                        No se puede mostrar la previsualización de esta imagen
-                    </div>
-                </div>
-            );
-        }
-
-        if (isPdf) {
-            return (
-                <div className="flex justify-center">
-                    <iframe
-                        src={document.file_url}
-                        className="w-full h-96 border rounded"
-                        title={document.name}
-                    />
-                </div>
-            );
-        }
-
-        if (isVideo) {
-            return (
-                <div className="flex justify-center">
-                    <video
-                        controls
-                        className="max-w-full max-h-96 rounded"
-                        preload="metadata"
-                    >
-                        <source src={document.file_url} />
-                        Tu navegador no soporta la reproducción de video.
-                    </video>
-                </div>
-            );
-        }
-
-        if (isAudio) {
-            return (
-                <div className="flex justify-center">
-                    <audio controls className="w-full">
-                        <source src={document.file_url} />
-                        Tu navegador no soporta la reproducción de audio.
-                    </audio>
-                </div>
-            );
-        }
-
-        return (
-            <div className="text-center p-8">
-                <div className="text-6xl mb-4">
-                    {isText || isCode ? '📝' :
-                        isPdf ? '📄' :
-                            isVideo ? '🎥' :
-                                isAudio ? '🎵' : '📁'}
-                </div>
-                <p className="text-gray-500 mb-4">
-                    Previsualización no disponible para este tipo de archivo
-                </p>
-            </div>
-        );
+        // Remover el enlace después de un breve momento
+        setTimeout(() => {
+            document.body.removeChild(link);
+        }, 100);
     };
 
     if (loading) {
@@ -1216,7 +1340,7 @@ const GestionDocumentosPage = () => {
                     <button
                         onClick={handleManualRefresh}
                         disabled={loading}
-                        className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover-bg-blue rounded-md transition-colors disabled:opacity-50 cursor-pointer"
                     >
                         <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
@@ -1237,8 +1361,9 @@ const GestionDocumentosPage = () => {
                                 {folders.find(f => f.id === 'root')?.name || 'PLANTAS'}
                             </div>
                             <button
-                                onClick={() => setShowCreateFolderModal(true)}
-                                className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                                onClick={startCreatingFolder}
+                                disabled={creatingNewFolder}
+                                className="p-1.5 text-gray-500 hover:text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer disabled:opacity-50"
                                 title="Crear nueva carpeta"
                             >
                                 <Plus size={16} />
@@ -1250,84 +1375,56 @@ const GestionDocumentosPage = () => {
                                     {renderFolderTree(folder)}
                                 </div>
                             ))}
+
+                            {/* Input inline para crear nueva carpeta */}
+                            {creatingNewFolder && (
+                                <div
+                                    className="flex items-center gap-2 py-2 px-2 rounded bg-blue-50 border border-blue-200"
+                                    style={{ paddingLeft: '8px' }}
+                                >
+                                    <div className="w-6" />
+                                    <Folder size={16} className="text-blue-600" />
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <input
+                                            type="text"
+                                            value={newFolderName}
+                                            onChange={(e) => setNewFolderName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    handleSaveNewFolder();
+                                                } else if (e.key === 'Escape') {
+                                                    handleCancelNewFolder();
+                                                }
+                                            }}
+                                            placeholder="Nombre de la carpeta"
+                                            className="flex-1 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            autoFocus
+                                            disabled={isUploading}
+                                        />
+                                        <button
+                                            onClick={handleSaveNewFolder}
+                                            disabled={isUploading || !newFolderName.trim()}
+                                            className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                        >
+                                            {isUploading ? (
+                                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                <Check size={14} />
+                                            )}
+                                        </button>
+                                        <button
+                                            onClick={handleCancelNewFolder}
+                                            disabled={isUploading}
+                                            className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
-
-                {showCreateFolderModal && (
-                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
-                            <div className="p-6">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h3 className="text-lg font-semibold text-gray-900">Crear Nueva Carpeta</h3>
-                                    <button
-                                        onClick={() => setShowCreateFolderModal(false)}
-                                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-blue-100 rounded-md">
-                                                <Folder size={16} className="text-blue-600" />
-                                            </div>
-                                            <div>
-                                                <div className="text-sm font-medium text-blue-900">
-                                                    Carpeta padre
-                                                </div>
-                                                <div className="text-sm text-blue-700">
-                                                    {getBreadcrumb(selectedFolder)}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Nombre de la carpeta *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={folderForm.name}
-                                            onChange={(e) => setFolderForm(prev => ({ ...prev, name: e.target.value }))}
-                                            placeholder="Ingresa el nombre de la carpeta"
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            autoFocus
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 mt-6">
-                                    <button
-                                        onClick={() => setShowCreateFolderModal(false)}
-                                        className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={handleCreateFolder}
-                                        disabled={!folderForm.name.trim() || isUploading}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                    >
-                                        {isUploading ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                Creando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                Crear Carpeta
-                                            </>
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {/* Panel derecho - Lista de archivos */}
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -1344,18 +1441,6 @@ const GestionDocumentosPage = () => {
                             </div>
 
                             <div className="flex items-center gap-4">
-                                {selectedDocuments.size > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={downloadSelectedDocuments}
-                                            className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer"
-                                        >
-                                            <Download size={14} />
-                                            Descargar ({selectedDocuments.size})
-                                        </button>
-                                    </div>
-                                )}
-
                                 <div className="flex items-center gap-2">
                                     <label className="text-sm text-gray-600">Ordenar por:</label>
                                     <select
@@ -1369,7 +1454,7 @@ const GestionDocumentosPage = () => {
                                     </select>
                                     <button
                                         onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                                        className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
+                                        className="p-1 text-gray-600 hover:text-gray-800 transition-colors cursor-pointer"
                                         title={`Orden ${sortOrder === 'asc' ? 'ascendente' : 'descendente'}`}
                                     >
                                         {sortOrder === 'asc' ? <SortAsc size={16} /> : <SortDesc size={16} />}
@@ -1446,21 +1531,18 @@ const GestionDocumentosPage = () => {
                                         <td className="p-3">
                                             <div className="flex items-center justify-center gap-1">
                                                 <button
-                                                    onClick={() => {
-                                                        setSelectedDocument(document);
-                                                        setShowDocumentModal(true);
-                                                    }}
-                                                    className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
-                                                    title="Ver detalles"
-                                                >
-                                                    <Eye size={14} />
-                                                </button>
-                                                <button
                                                     onClick={() => handleDownload(document)}
-                                                    className="p-2 text-green-600 hover:bg-green-100 rounded-md transition-colors cursor-pointer"
+                                                    className="p-2 text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer"
                                                     title="Descargar"
                                                 >
                                                     <Download size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => confirmDeleteDocument(document)}
+                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                                                    title="Eliminar"
+                                                >
+                                                    <Trash2 size={14} />
                                                 </button>
                                             </div>
                                         </td>
@@ -1486,6 +1568,21 @@ const GestionDocumentosPage = () => {
 
             {/* Botones flotantes */}
             <div className="fixed bottom-6 right-6 flex gap-3 z-40">
+                {/* Botón de descargar - a la izquierda */}
+                {selectedDocuments.size > 0 && (
+                    <button
+                        onClick={downloadSelectedDocuments}
+                        className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-200 hover:scale-105 cursor-pointer"
+                        title={`Descargar ${selectedDocuments.size} archivo(s) seleccionado(s)`}
+                    >
+                        <Download size={20} />
+                        <span className="hidden sm:block">
+                            Descargar ({selectedDocuments.size})
+                        </span>
+                    </button>
+                )}
+
+                {/* Botón de subir - a la derecha */}
                 <button
                     onClick={() => setShowUploadModal(true)}
                     disabled={isUploading}
@@ -1546,7 +1643,7 @@ const GestionDocumentosPage = () => {
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                             accept="*/*"
                                         />
-                                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 hover-bg-blue transition-colors">
                                             <Upload size={48} className="mx-auto text-gray-400 mb-4" />
                                             <div className="text-sm text-gray-600 mb-2">
                                                 <span className="font-medium text-blue-600">Haz clic para seleccionar</span> o arrastra archivos aquí
@@ -1612,79 +1709,9 @@ const GestionDocumentosPage = () => {
                                         ) : (
                                             <>
                                                 <Upload size={16} />
-                                                Subir {uploadForm.files.length} archivo{uploadForm.files.length !== 1 ? 's' : ''}
+                                                Subir
                                             </>
                                         )}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showDocumentModal && selectedDocument && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-xl">
-                        <div className="p-6 overflow-y-auto max-h-[90vh]">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Previsualización del Documento</h3>
-                                <button
-                                    onClick={() => setShowDocumentModal(false)}
-                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-6">
-                                <div className="flex items-start gap-4 pb-6 border-b border-gray-200">
-                                    <div className="p-3 bg-blue-100 rounded-lg">
-                                        <FileText className="text-blue-600" size={24} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="text-xl font-semibold text-gray-900 mb-3 break-words">{selectedDocument.name}</h4>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                            <div className="space-y-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-gray-500 w-16">Tamaño:</span>
-                                                    <span className="text-gray-900">{formatFileSize(selectedDocument.size)}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-gray-500 w-16">Tipo:</span>
-                                                    <span className="text-gray-900">{selectedDocument.mime_type}</span>
-                                                </div>
-                                            </div>
-                                            <div className="space-y-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-gray-500 w-16">Subido:</span>
-                                                    <span className="text-gray-900">{formatDate(selectedDocument.created_at)}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-gray-500 w-16">Carpeta:</span>
-                                                    <span className="text-gray-900">{getBreadcrumb(selectedDocument.folder_id)}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                                    <h5 className="font-medium text-gray-700 mb-4 flex items-center gap-2">
-                                        <Eye size={16} />
-                                        Previsualización
-                                    </h5>
-                                    {getFilePreview(selectedDocument)}
-                                </div>
-
-                                <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
-                                    <button
-                                        onClick={() => handleDownload(selectedDocument)}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-green-700 transition-colors cursor-pointer"
-                                    >
-                                        <Download size={16} />
-                                        Descargar
                                     </button>
                                 </div>
                             </div>
@@ -1704,8 +1731,8 @@ const GestionDocumentosPage = () => {
                                     'bg-blue-600 text-white'
                             }`}
                     >
-                        {notification.type === 'success' && <CheckCircle size={20} />}
-                        {notification.type === 'error' && <XCircle size={20} />}
+                        {notification.type === 'success' && <Check size={20} />}
+                        {notification.type === 'error' && <X size={20} />}
                         {notification.type === 'warning' && <AlertTriangle size={20} />}
                         {notification.type === 'info' && <AlertCircle size={20} />}
 
@@ -1733,7 +1760,7 @@ const GestionDocumentosPage = () => {
                                 <h3 className="text-lg font-semibold text-gray-900">Confirmar eliminación</h3>
                             </div>
 
-                            <p className="text-gray-600 mb-6 leading-relaxed">
+                            <p className="text-gray-600 mb-6 leading-relaxed break-words">
                                 {confirmAction?.message}
                             </p>
 

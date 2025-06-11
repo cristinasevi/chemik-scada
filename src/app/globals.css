@@ -381,3 +381,63 @@ input[type="time"] {
 .dark .row-info:hover {
   background-color: #1e3a8a33;
 }
+
+/* Modales en modo oscuro */
+.modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.dark .modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+  background-color: var(--panel-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border);
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-input {
+  background-color: var(--background);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.modal-input:focus {
+  border-color: var(--button-primary);
+  background-color: var(--background);
+}
+
+.modal-button-secondary {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.modal-button-secondary:hover {
+  background-color: var(--border-color);
+}
+
+.hover-folder:hover {
+  background-color: var(--hover-bg);
+}
+
+.text-folder {
+  color: var(--text-secondary);
+}
+
+.dark .text-folder {
+  color: var(--text-muted);
+}
+
+.hover-bg-blue:hover {
+  background-color: #eff6ff;
+}
+
+.dark .hover-bg-blue:hover {
+  background-color: #1e3a8a1a; 
+}
