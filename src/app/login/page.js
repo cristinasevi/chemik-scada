@@ -125,7 +125,7 @@ const LoginPage = () => {
             <div className="flex justify-center mb-4">
               <div className="w-20 h-20 rounded-xl overflow-hidden flex items-center justify-center shadow-lg">
                 <img 
-                  src="/images/aresol.jpeg" 
+                  src="/images/chemik.jpeg" 
                   alt="Chemik Scada Logo" 
                   className="w-full h-full object-contain"
                 />

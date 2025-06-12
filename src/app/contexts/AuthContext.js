@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { supabase, userService } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -18,6 +18,8 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true); // Nueva bandera
+  const router = useRouter();
   const pathname = usePathname();
 
   // Obtener sesión actual y perfil
@@ -46,6 +48,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Error en getSession:', error);
     } finally {
       setLoading(false);
+      setInitialLoad(false); // Marcar que ya terminó la carga inicial
     }
   };
 
@@ -56,6 +59,8 @@ export const AuthProvider = ({ children }) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, !!session?.user);
+      
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
         
@@ -67,37 +72,49 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
         setProfile(null);
       }
-      setLoading(false);
+      
+      // Solo cambiar loading si no es la carga inicial
+      if (!initialLoad) {
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [initialLoad]);
 
   // Manejar redirecciones automáticas
   useEffect(() => {
-    if (loading || typeof window === 'undefined') return;
+    // No hacer nada durante la carga inicial
+    if (loading || initialLoad || typeof window === 'undefined') return;
 
     const isPublicRoute = pathname === '/login';
     const isAdminRoute = pathname.startsWith('/usuarios');
 
-    // Redirigir no autenticados a login
+    // Redirigir no autenticados a login (preservando la URL actual)
     if (!user && !isPublicRoute) {
-      window.location.href = '/login';
+      // Guardar la URL actual para volver después del login
+      sessionStorage.setItem('returnUrl', pathname);
+      router.push('/login');
       return;
     }
 
     // Redirigir autenticados fuera del login
     if (user && pathname === '/login') {
-      window.location.replace('/');
+      // Verificar si hay una URL de retorno guardada
+      const returnUrl = sessionStorage.getItem('returnUrl');
+      sessionStorage.removeItem('returnUrl');
+      
+      // Ir a la URL guardada o al dashboard
+      router.replace(returnUrl || '/');
       return;
     }
 
     // Redirigir no-admins fuera de rutas de admin
     if (user && isAdminRoute && profile?.rol !== 'admin') {
-      window.location.replace('/');
+      router.replace('/');
       return;
     }
-  }, [user, profile, loading, pathname]);
+  }, [user, profile, loading, initialLoad, pathname, router]);
 
   const login = async (email, password) => {
     try {
@@ -125,10 +142,14 @@ export const AuthProvider = ({ children }) => {
       
       setUser(null);
       setProfile(null);
-      window.location.href = '/login';
+      
+      // Limpiar cualquier URL de retorno guardada
+      sessionStorage.removeItem('returnUrl');
+      
+      router.push('/login');
     } catch (error) {
       console.error('Error en logout:', error);
-      window.location.href = '/login';
+      router.push('/login');
     }
   };
 
@@ -156,7 +177,7 @@ export const AuthProvider = ({ children }) => {
       profile, // Perfil de la tabla profiles
       login,
       logout,
-      loading,
+      loading: loading || initialLoad, // Mostrar loading durante carga inicial
       isAuthenticated: !!user,
       isAdmin: profile?.rol === 'admin',
       // Funciones de utilidad

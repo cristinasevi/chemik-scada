@@ -17,27 +17,72 @@ const UsersPage = () => {
     const [successMessage, setSuccessMessage] = useState('');
 
     // Usar el hook personalizado para usuarios
-    const { 
-        users, 
-        loading, 
-        error: usersError, 
-        createUser, 
-        updateUser, 
-        deleteUser, 
-        checkUsernameAvailable 
+    const {
+        users,
+        loading,
+        error: usersError,
+        createUser,
+        updateUser,
+        deleteUser,
+        checkUsernameAvailable
     } = useUsers();
 
-    // Lista de plantas disponibles
+    // Lista de plantas disponibles con mejor mapeo
     const mockPlants = [
-        { id: 'LAMAJA', name: 'LAMAJA' },
-        { id: 'RETAMAR', name: 'RETAMAR' },
+        { id: 'LAMAJA', name: 'La Maja' },
+        { id: 'RETAMAR', name: 'Retamar' },
         { id: 'TOTAL', name: 'Todas las plantas' }
     ];
 
     useEffect(() => {
-        // Solo cargar plantas (los usuarios se cargan automáticamente con el hook)
         setPlants(mockPlants);
     }, []);
+
+    // Función para obtener el nombre de una planta por su ID
+    const getPlantName = (plantId) => {
+        const plant = plants.find(p => p.id === plantId);
+        return plant ? plant.name : plantId;
+    };
+
+    // Función para formatear la lista de plantas asignadas
+    const formatAssignedPlants = (plantasAsignadas) => {
+        if (!plantasAsignadas || plantasAsignadas.length === 0) {
+            return { display: 'Sin plantas', count: 0, list: [] };
+        }
+
+        // Si tiene todas las plantas
+        if (plantasAsignadas.includes('TOTAL') ||
+            (plantasAsignadas.includes('LAMAJA') && plantasAsignadas.includes('RETAMAR'))) {
+            return {
+                display: 'Todas las plantas',
+                count: plantasAsignadas.length,
+                list: ['Todas las plantas']
+            };
+        }
+
+        // Mapear IDs a nombres
+        const plantNames = plantasAsignadas.map(id => getPlantName(id));
+
+        if (plantNames.length === 1) {
+            return {
+                display: plantNames[0],
+                count: 1,
+                list: plantNames
+            };
+        } else if (plantNames.length <= 3) {
+            return {
+                display: plantNames.join(', '),
+                count: plantNames.length,
+                list: plantNames
+            };
+        } else {
+            return {
+                display: `${plantNames[0]} y ${plantNames.length - 1} más`,
+                count: plantNames.length,
+                list: plantNames
+            };
+        }
+    };
 
     // Componente del pop-up:
     const SuccessPopup = () => {
@@ -323,10 +368,23 @@ const UsersPage = () => {
         };
 
         const addPlant = (plantId) => {
-            if (!formData.plantas_asignadas.includes(plantId)) {
+            // Si selecciona "TOTAL", limpiar otras plantas y solo agregar TOTAL
+            if (plantId === 'TOTAL') {
                 setFormData({
                     ...formData,
-                    plantas_asignadas: [...formData.plantas_asignadas, plantId]
+                    plantas_asignadas: ['TOTAL']
+                });
+            } else {
+                // Si ya tiene TOTAL, reemplazarlo con la planta específica
+                let newPlants = formData.plantas_asignadas.filter(id => id !== 'TOTAL');
+
+                if (!newPlants.includes(plantId)) {
+                    newPlants.push(plantId);
+                }
+
+                setFormData({
+                    ...formData,
+                    plantas_asignadas: newPlants
                 });
             }
         };
@@ -503,7 +561,14 @@ const UsersPage = () => {
                                 >
                                     <option value="">Seleccionar planta...</option>
                                     {plants
-                                        .filter(plant => !formData.plantas_asignadas.includes(plant.id))
+                                        .filter(plant => {
+                                            // Si ya tiene TOTAL, no mostrar otras opciones
+                                            if (formData.plantas_asignadas.includes('TOTAL')) {
+                                                return false;
+                                            }
+                                            // Si no tiene la planta, mostrarla
+                                            return !formData.plantas_asignadas.includes(plant.id);
+                                        })
                                         .map(plant => (
                                             <option key={plant.id} value={plant.id}>
                                                 {plant.name}
@@ -678,66 +743,75 @@ const UsersPage = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredUsers.map((user) => (
-                                <tr key={user.id} className="border-b border-custom hover-bg">
-                                    <td className="p-4">
-                                        <div>
-                                            <p className="font-medium text-primary">{user.nombre}</p>
-                                        </div>
-                                    </td>
+                            {filteredUsers.map((user) => {
+                                const plantInfo = formatAssignedPlants(user.plantas_asignadas);
 
-                                    <td className="p-4">
-                                        <div className="text-sm text-secondary">
-                                            {user.nombre_usuario.split('@')[0]}
-                                        </div>
-                                    </td>
+                                return (
+                                    <tr key={user.id} className="border-b border-custom hover-bg">
+                                        <td className="p-4">
+                                            <div>
+                                                <p className="font-medium text-primary">{user.nombre}</p>
+                                            </div>
+                                        </td>
 
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2 text-sm text-secondary">
-                                            {user.email}
-                                        </div>
-                                    </td>
+                                        <td className="p-4">
+                                            <div className="text-sm text-secondary">
+                                                {user.nombre_usuario.split('@')[0]}
+                                            </div>
+                                        </td>
 
-                                    <td className="p-4 text-center">
-                                        {getRoleBadge(user.rol)}
-                                    </td>
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-2 text-sm text-secondary">
+                                                {user.email}
+                                            </div>
+                                        </td>
 
-                                    <td className="p-4 text-center">
-                                        <div className="text-sm text-secondary">
-                                            {user.plantas_asignadas?.length || 0} plantas
-                                        </div>
-                                    </td>
+                                        <td className="p-4 text-center">
+                                            {getRoleBadge(user.rol)}
+                                        </td>
 
-                                    <td className="p-4 text-center">
-                                        <div className="flex justify-center">
-                                            {user.notify_alarms ? (
-                                                <Bell className="text-blue-500" size={16} />
-                                            ) : (
-                                                <BellOff className="text-gray-400" size={16} />
+                                        <td className="p-4 text-center">
+                                            <div className="text-sm text-primary" title={plantInfo.list.join(', ')}>
+                                                {plantInfo.display}
+                                            </div>
+                                            {plantInfo.count > 1 && (
+                                                <div className="text-xs text-secondary mt-1">
+                                                    {plantInfo.count} plantas
+                                                </div>
                                             )}
-                                        </div>
-                                    </td>
+                                        </td>
 
-                                    <td className="p-4">
-                                        <div className="flex justify-center gap-2">
-                                            <button
-                                                onClick={() => handleEditUser(user)}
-                                                className="btn-edit-hover"
-                                                title="Editar usuario"
-                                            >
-                                                <Edit size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteUser(user)}
-                                                className="btn-delete-hover"
-                                                title="Eliminar usuario"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                                        <td className="p-4 text-center">
+                                            <div className="flex justify-center">
+                                                {user.notify_alarms ? (
+                                                    <Bell className="text-blue-500" size={16} />
+                                                ) : (
+                                                    <BellOff className="text-gray-400" size={16} />
+                                                )}
+                                            </div>
+                                        </td>
+
+                                        <td className="p-4">
+                                            <div className="flex justify-center gap-2">
+                                                <button
+                                                    onClick={() => handleEditUser(user)}
+                                                    className="btn-edit-hover"
+                                                    title="Editar usuario"
+                                                >
+                                                    <Edit size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteUser(user)}
+                                                    className="btn-delete-hover"
+                                                    title="Eliminar usuario"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>

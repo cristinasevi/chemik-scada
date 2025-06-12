@@ -11,9 +11,9 @@ export const useUsers = () => {
     try {
       setLoading(true)
       setError(null)
-      
+
       const { data, error: fetchError } = await userService.getAllUsers()
-      
+
       if (fetchError) {
         setError(fetchError.message)
       } else {
@@ -31,9 +31,8 @@ export const useUsers = () => {
   const createUser = async (userData) => {
     try {
       const result = await userService.createUser(userData)
-      
+
       if (result.success) {
-        await loadUsers() // Recargar lista
         return { success: true, data: result.data }
       } else {
         return { success: false, error: result.error }
@@ -47,18 +46,22 @@ export const useUsers = () => {
   const updateUser = async (userId, userData) => {
     try {
       const { data, error } = await userService.updateUser(userId, userData)
-      
+
       if (error) {
         return { success: false, error: error.message }
       }
-      
+
       // Actualizar estado local
-      setUsers(prevUsers => 
-        prevUsers.map(user => 
-          user.id === userId ? { ...user, ...data } : user
+      setUsers(prevUsers =>
+        prevUsers.map(user =>
+          user.id === userId ? {
+            ...user,
+            ...userData,
+            updated_at: new Date().toISOString()
+          } : user
         )
       )
-      
+
       return { success: true, data }
     } catch (error) {
       return { success: false, error: error.message }
@@ -69,7 +72,7 @@ export const useUsers = () => {
   const deleteUser = async (userId) => {
     try {
       const result = await userService.deleteUser(userId)
-      
+
       if (result.success) {
         // Actualizar estado local
         setUsers(prevUsers => prevUsers.filter(user => user.id !== userId))
@@ -86,14 +89,14 @@ export const useUsers = () => {
   const checkUsernameAvailable = async (nombreUsuario, excludeUserId = null) => {
     try {
       const { available, error } = await userService.checkUsernameAvailable(
-        nombreUsuario, 
+        nombreUsuario,
         excludeUserId
       )
-      
+
       if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (username available)
         return { available: false, error: error.message }
       }
-      
+
       return { available, error: null }
     } catch (error) {
       return { available: false, error: error.message }
