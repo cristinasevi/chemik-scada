@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search,
     Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
@@ -23,7 +23,6 @@ const GestionDocumentosPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('name');
     const [sortOrder, setSortOrder] = useState('asc');
-    const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocuments, setSelectedDocuments] = useState(new Set());
     const [isUploading, setIsUploading] = useState(false);
     const [syncStatus, setSyncStatus] = useState({ syncing: false, message: '' });
@@ -35,15 +34,7 @@ const GestionDocumentosPage = () => {
     const [editingName, setEditingName] = useState('');
     const [creatingNewFolder, setCreatingNewFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
-
-    // Estados para formularios
-    const [uploadForm, setUploadForm] = useState({
-        files: [],
-        category: '',
-        plant: '',
-        tags: [],
-        description: ''
-    });
+    const fileInputRef = useRef(null);
 
     // Sistema de notificaciones
     const showNotification = (message, type = 'success') => {
@@ -604,8 +595,14 @@ const GestionDocumentosPage = () => {
 
     const createFolderInStorage = async (folderPath) => {
         try {
+            // Sanitizar cada parte del path
+            const sanitizedPath = folderPath
+                .split('/')
+                .map(part => sanitizeFolderName(part))
+                .join('/');
+
             const placeholderFile = new Blob([''], { type: 'text/plain' });
-            const placeholderPath = `${folderPath}/.emptyFolderPlaceholder`;
+            const placeholderPath = `${sanitizedPath}/.emptyFolderPlaceholder`;
 
             const { error } = await supabase.storage
                 .from('documents')
@@ -616,7 +613,19 @@ const GestionDocumentosPage = () => {
             }
         } catch (error) {
             console.error('Error creating folder in storage:', error);
+            throw error; // Re-lanzar el error para que sea manejado por quien llama
         }
+    };
+
+    const sanitizeFolderName = (name) => {
+        return name
+            .normalize('NFD') // Descomponer caracteres acentuados
+            .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+            .replace(/ñ/g, 'n') // Reemplazar ñ por n
+            .replace(/Ñ/g, 'N') // Reemplazar Ñ por N
+            .replace(/[^a-zA-Z0-9\s\-_]/g, '') // Solo letras, números, espacios, guiones y guiones bajos
+            .replace(/\s+/g, '_') // Reemplazar espacios por guiones bajos
+            .trim(); // Eliminar espacios al inicio y final
     };
 
     const getFolderStoragePath = (folderId) => {
@@ -625,7 +634,7 @@ const GestionDocumentosPage = () => {
         const folder = folders.find(f => f.id === folderId);
         if (!folder) return '';
 
-        // Construir la ruta de forma iterativa en lugar de recursiva
+        // Construir la ruta de forma iterativa y sanitizar cada parte
         const buildPath = (currentFolderId) => {
             const pathParts = [];
             let currentId = currentFolderId;
@@ -634,7 +643,8 @@ const GestionDocumentosPage = () => {
                 const currentFolder = folders.find(f => f.id === currentId);
                 if (!currentFolder) break;
 
-                pathParts.unshift(currentFolder.name);
+                // Sanitizar el nombre de la carpeta para el storage
+                pathParts.unshift(sanitizeFolderName(currentFolder.name));
                 currentId = currentFolder.parent_id;
             }
 
@@ -697,10 +707,10 @@ const GestionDocumentosPage = () => {
                 mime_type: file.type,
                 folder_id: folderId,
                 uploaded_by: user?.username || 'Anónimo',
-                description: uploadForm.description || '',
-                tags: uploadForm.tags || [],
-                category: uploadForm.category || '',
-                plant: uploadForm.plant || '',
+                description: '',
+                tags: [],
+                category: '',
+                plant: '',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -815,9 +825,6 @@ const GestionDocumentosPage = () => {
 
             await Promise.all(uploadPromises);
 
-            setShowUploadModal(false);
-            setUploadForm({ files: [], category: '', plant: '', tags: [], description: '' });
-
             // Refresh automático después de la operación
             await refreshData(true);
 
@@ -825,31 +832,6 @@ const GestionDocumentosPage = () => {
         } catch (error) {
             console.error('Error uploading files:', error);
             showNotification('Error al subir archivos: ' + error.message, 'error');
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
-    const handleCreateFolder = async () => {
-        if (!folderForm.name.trim()) {
-            showNotification('Ingresa un nombre para la carpeta', 'error');
-            return;
-        }
-
-        setIsUploading(true);
-        try {
-            await createFolderInSupabase(folderForm.name.trim(), selectedFolder);
-
-            setShowCreateFolderModal(false);
-            setFolderForm({ name: '', description: '', parent: 'root', plant: '', category: '' });
-
-            // Refresh automático después de la operación
-            await refreshData(true);
-
-            showNotification('Carpeta creada correctamente', 'success');
-        } catch (error) {
-            console.error('Error creating folder:', error);
-            showNotification('Error al crear carpeta: ' + error.message, 'error');
         } finally {
             setIsUploading(false);
         }
@@ -1259,6 +1241,15 @@ const GestionDocumentosPage = () => {
         );
     };
 
+    const handleDirectFileUpload = async (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            await handleFileUpload(files);
+        }
+        // Limpiar el input para poder seleccionar los mismos archivos otra vez
+        e.target.value = '';
+    };
+
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (showFolderMenu) {
@@ -1291,19 +1282,57 @@ const GestionDocumentosPage = () => {
         return 'PLANTAS > ' + path.join(' > ');
     };
 
-    const handleDownload = (doc) => {
-        const link = document.createElement('a');
-        link.href = doc.file_url;
-        link.download = doc.original_name || doc.name;
-        link.style.display = 'none';
+    const handleDownload = async (doc) => {
+        try {
 
-        document.body.appendChild(link);
-        link.click();
+            // Fetch del archivo para forzar la descarga
+            const response = await fetch(doc.file_url, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                },
+            });
 
-        // Remover el enlace después de un breve momento
-        setTimeout(() => {
-            document.body.removeChild(link);
-        }, 100);
+            if (!response.ok) {
+                throw new Error(`Error al descargar: ${response.status}`);
+            }
+
+            // Convertir a blob
+            const blob = await response.blob();
+
+            // Crear URL del blob
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Crear enlace de descarga
+            const link = document.createElement('a');
+            link.href = blobUrl;
+
+            // Usar el nombre original o el nombre del documento
+            const filename = doc.original_name || doc.name || 'archivo_descargado';
+            link.download = filename;
+
+            // Configurar atributos para forzar descarga
+            link.style.display = 'none';
+            link.target = '_blank';
+
+            // Agregar al DOM, hacer clic y remover
+            document.body.appendChild(link);
+            link.click();
+
+            // Limpiar después de un momento
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl); // Liberar memoria
+            }, 100);
+
+            // Mostrar notificación de éxito
+            showNotification(`Archivo "${filename}" descargado correctamente`, 'success');
+
+        } catch (error) {
+            console.error('Error downloading file:', error);
+            showNotification('Error al descargar el archivo: ' + error.message, 'error');
+        } finally {
+        }
     };
 
     if (loading) {
@@ -1584,7 +1613,7 @@ const GestionDocumentosPage = () => {
 
                 {/* Botón de subir - a la derecha */}
                 <button
-                    onClick={() => setShowUploadModal(true)}
+                    onClick={() => fileInputRef.current?.click()}
                     disabled={isUploading}
                     className="flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-200 hover:scale-105 disabled:opacity-50 cursor-pointer"
                     title="Subir archivos"
@@ -1599,126 +1628,15 @@ const GestionDocumentosPage = () => {
                 </button>
             </div>
 
-            {/* Modales */}
-            {showUploadModal && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg w-full max-w-lg shadow-xl">
-                        <div className="p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Subir Archivos</h3>
-                                <button
-                                    onClick={() => setShowUploadModal(false)}
-                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-6">
-                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-blue-100 rounded-md">
-                                            <Folder size={16} className="text-blue-600" />
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-medium text-blue-900">
-                                                Destino de subida
-                                            </div>
-                                            <div className="text-sm text-blue-700">
-                                                {getBreadcrumb(selectedFolder)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                                        Seleccionar archivos
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            type="file"
-                                            multiple
-                                            onChange={(e) => setUploadForm(prev => ({ ...prev, files: Array.from(e.target.files) }))}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                            accept="*/*"
-                                        />
-                                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 hover-bg-blue transition-colors">
-                                            <Upload size={48} className="mx-auto text-gray-400 mb-4" />
-                                            <div className="text-sm text-gray-600 mb-2">
-                                                <span className="font-medium text-blue-600">Haz clic para seleccionar</span> o arrastra archivos aquí
-                                            </div>
-                                            <div className="text-xs text-gray-500">
-                                                Soporta múltiples archivos de cualquier tipo
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {uploadForm.files.length > 0 && (
-                                        <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
-                                            <div className="text-sm font-medium text-gray-700 mb-3">
-                                                {uploadForm.files.length} archivo{uploadForm.files.length !== 1 ? 's' : ''} seleccionado{uploadForm.files.length !== 1 ? 's' : ''}
-                                            </div>
-                                            <div className="space-y-2 max-h-32 overflow-y-auto">
-                                                {uploadForm.files.map((file, index) => (
-                                                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border">
-                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                            <FileText size={16} className="text-blue-500 flex-shrink-0" />
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="text-sm font-medium text-gray-900 truncate">
-                                                                    {file.name}
-                                                                </div>
-                                                                <div className="text-xs text-gray-500">
-                                                                    {formatFileSize(file.size)}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => {
-                                                                const newFiles = uploadForm.files.filter((_, i) => i !== index);
-                                                                setUploadForm(prev => ({ ...prev, files: newFiles }));
-                                                            }}
-                                                            className="p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                                    <button
-                                        onClick={() => setShowUploadModal(false)}
-                                        className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={() => handleFileUpload(uploadForm.files)}
-                                        disabled={uploadForm.files.length === 0 || isUploading}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                    >
-                                        {isUploading ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                Subiendo...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Upload size={16} />
-                                                Subir
-                                            </>
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Input file oculto */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleDirectFileUpload}
+                className="hidden"
+                accept="*/*"
+            />
 
             {/* Sistema de notificaciones */}
             <div className="fixed top-4 right-4 z-50 space-y-3">
