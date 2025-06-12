@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, User, Lock, AlertTriangle, Check, Sun, Moon } from 'lucide-react';
+import { Eye, EyeOff, User, Lock, AlertTriangle, Sun, Moon } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage = () => {
-  const router = useRouter();
+  const { login, loading: authLoading } = useAuth();
   const [formData, setFormData] = useState({
     username: '',
     password: ''
@@ -40,40 +40,6 @@ const LoginPage = () => {
     localStorage.setItem('theme', themeClass);
   };
 
-  // Usuarios válidos (en un caso real, esto vendría de una API)
-  const validUsers = [
-    {
-      username: 'admin@chemik.es',
-      password: 'chemik123',
-      name: 'Administrador',
-      role: 'admin'
-    },
-    {
-      username: 'ruben.santos@chemik.es',
-      password: 'chemik123',
-      name: 'Rubén Santos',
-      role: 'admin'
-    },
-    {
-      username: 'jjgomez@chemik.es',
-      password: 'chemik123',
-      name: 'Javi Gómez',
-      role: 'admin'
-    },
-    {
-      username: 'oscar.ruiz@chemik.es',
-      password: 'chemik123',
-      name: 'Óscar Ruiz',
-      role: 'admin'
-    },
-    {
-      username: 'cliente@chemik.es',
-      password: 'chemik123',
-      name: 'Cliente',
-      role: 'cliente'
-    },
-  ];
-
   // Validar formulario
   const validateForm = () => {
     const newErrors = {};
@@ -86,8 +52,8 @@ const LoginPage = () => {
 
     if (!formData.password) {
       newErrors.password = 'La contraseña es obligatoria';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'La contraseña debe tener al menos 8 caracteres';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'La contraseña debe tener al menos 6 caracteres';
     }
 
     setErrors(newErrors);
@@ -106,46 +72,25 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      // Verificar credenciales inmediatamente
-      const user = validUsers.find(
-        u => u.username === formData.username && u.password === formData.password
-      );
+      const result = await login(formData.username, formData.password);
 
-      if (user) {
-        // Crear objeto de usuario completo
-        const userSession = {
-          id: Date.now(),
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          loginTime: new Date().toISOString()
-        };
-
-        // Guardar datos del usuario en localStorage de forma segura
-        try {
-          localStorage.setItem('user', JSON.stringify(userSession));
-          
-          // Verificar que se guardó correctamente
-          const saved = localStorage.getItem('user');
-          if (saved) {
-            JSON.parse(saved); // Verificar que se puede parsear
-          }
-        } catch (storageError) {
-          console.error('Error guardando en localStorage:', storageError);
-          setLoginError('Error al guardar la sesión. Inténtalo de nuevo.');
-          setIsLoading(false);
-          return;
+      if (!result.success) {
+        // Manejar diferentes tipos de error
+        if (result.error.includes('Invalid login credentials')) {
+          setLoginError('Email o contraseña incorrectos');
+        } else if (result.error.includes('Email not confirmed')) {
+          setLoginError('Debes confirmar tu email antes de iniciar sesión');
+        } else if (result.error.includes('Too many requests')) {
+          setLoginError('Demasiados intentos. Espera un momento antes de intentar de nuevo');
+        } else {
+          setLoginError(result.error || 'Error de autenticación');
         }
-
-        // Redirigir inmediatamente al dashboard
-        window.location.href = '/';
-      } else {
-        setLoginError('Email o contraseña incorrectos');
-        setIsLoading(false);
       }
+      // Si el login es exitoso, el AuthContext se encarga de la redirección
     } catch (error) {
       console.error('Error en login:', error);
       setLoginError('Error de conexión. Inténtalo de nuevo.');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -180,7 +125,7 @@ const LoginPage = () => {
             <div className="flex justify-center mb-4">
               <div className="w-20 h-20 rounded-xl overflow-hidden flex items-center justify-center shadow-lg">
                 <img 
-                  src="/images/chemik.jpeg" 
+                  src="/images/aresol.jpeg" 
                   alt="Chemik Scada Logo" 
                   className="w-full h-full object-contain"
                 />
@@ -208,9 +153,9 @@ const LoginPage = () => {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Error de login */}
               {loginError && (
-                <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                <div className="flex items-center gap-3 p-4 badge-red rounded-lg border border-red">
                   <AlertTriangle className="text-red-500" size={20} />
-                  <p className="text-red-700 dark:text-red-400 text-sm">{loginError}</p>
+                  <p className="text-red-error-primary text-sm">{loginError}</p>
                 </div>
               )}
 
@@ -232,7 +177,7 @@ const LoginPage = () => {
                       errors.username ? 'border-red-500' : 'border-custom'
                     }`}
                     placeholder="usuario@chemik.es"
-                    disabled={isLoading}
+                    disabled={isLoading || authLoading}
                     autoComplete="username"
                   />
                 </div>
@@ -259,14 +204,14 @@ const LoginPage = () => {
                       errors.password ? 'border-red-500' : 'border-custom'
                     }`}
                     placeholder="••••••••"
-                    disabled={isLoading}
+                    disabled={isLoading || authLoading}
                     autoComplete="current-password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer"
-                    disabled={isLoading}
+                    disabled={isLoading || authLoading}
                   >
                     {showPassword ? 
                       <EyeOff className="h-5 w-5 text-secondary hover:text-primary transition-colors" /> :
@@ -282,10 +227,10 @@ const LoginPage = () => {
               {/* Botón de login */}
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || authLoading}
                 className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
               >
-                {isLoading ? (
+                {isLoading || authLoading ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     Iniciando sesión...
@@ -301,7 +246,7 @@ const LoginPage = () => {
               <button
                 type="button"
                 className="text-sm text-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
-                disabled={isLoading}
+                disabled={isLoading || authLoading}
               >
                 ¿Olvidaste tu contraseña?
               </button>
