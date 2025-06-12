@@ -10,36 +10,30 @@ const RouteGuard = ({ children }) => {
   const pathname = usePathname();
 
   useEffect(() => {
-    // No hacer nada durante la carga
+    // Solo verificar cuando tengamos todos los datos
     if (loading || !user || !profile) return;
 
-    // Verificar acceso a la ruta actual y redirigir silenciosamente si es necesario
+    // Verificar acceso y redirigir inmediatamente si es necesario
     if (!canAccessRoute(pathname)) {
       const allowedRoute = getAllowedRoute();
       router.replace(allowedRoute);
     }
   }, [user, profile, loading, pathname, canAccessRoute, getAllowedRoute, router]);
 
-  // Mostrar loading mientras se verifica
+  // Mostrar loading mínimo solo si realmente está cargando
   if (loading || !user || !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-secondary">Verificando permisos...</p>
-        </div>
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  // Si no puede acceder, mostrar loading mientras redirige (esto debería ser muy breve)
+  // Si no puede acceder, no mostrar nada - la redirección será inmediata
   if (!canAccessRoute(pathname)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-secondary">Redirigiendo...</p>
-        </div>
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }

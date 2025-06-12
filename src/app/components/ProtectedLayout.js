@@ -20,14 +20,11 @@ const ProtectedLayout = ({ children }) => {
   // Rutas públicas se muestran siempre
   if (pathname === '/login') return children;
 
-  // Mostrar loading solo mientras verifica autenticación
+  // Mostrar loading SOLO durante verificación muy rápida
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-secondary">Verificando autenticación...</p>
-        </div>
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }

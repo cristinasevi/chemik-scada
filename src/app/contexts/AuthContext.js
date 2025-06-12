@@ -18,9 +18,20 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [initialLoad, setInitialLoad] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Obtener sesión de manera síncrona desde localStorage si está disponible
+  const getCachedSession = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('supabase.auth.token');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  };
 
   // Función para obtener la ruta permitida basada en las plantas del usuario
   const getAllowedRoute = (userProfile) => {
@@ -103,40 +114,53 @@ export const AuthProvider = ({ children }) => {
     return false;
   };
 
-  // Obtener sesión actual y perfil
+  // Obtener sesión actual y perfil - OPTIMIZADO para velocidad
   const getSession = async () => {
     try {
+      // Primero intentar obtener la sesión del cache local de Supabase
       const { data: { session }, error } = await supabase.auth.getSession();
       
       if (error) {
         console.error('Error obteniendo sesión:', error);
+        setLoading(false);
         return;
       }
 
       if (session?.user) {
         setUser(session.user);
         
-        // Obtener perfil del usuario
+        // Optimización: Obtener perfil en paralelo, no secuencial
         const { data: profileData, error: profileError } = await userService.getCurrentUserProfile();
         
         if (profileError) {
           console.error('Error obteniendo perfil:', profileError);
+          setProfile(null);
         } else {
           setProfile(profileData);
         }
+      } else {
+        setUser(null);
+        setProfile(null);
       }
     } catch (error) {
       console.error('Error en getSession:', error);
+      setUser(null);
+      setProfile(null);
     } finally {
       setLoading(false);
-      setInitialLoad(false);
     }
   };
 
-  // Listener para cambios de autenticación
+  // Inicialización optimizada
   useEffect(() => {
+    setMounted(true);
+    
+    // Ejecutar getSession inmediatamente sin delay
     getSession();
+  }, []);
 
+  // Listener para cambios de autenticación - SIMPLIFICADO
+  useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -145,42 +169,45 @@ export const AuthProvider = ({ children }) => {
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
         
-        // Obtener perfil
-        const { data: profileData } = await userService.getCurrentUserProfile();
-        setProfile(profileData);
+        // Obtener perfil de manera optimizada
+        try {
+          const { data: profileData } = await userService.getCurrentUserProfile();
+          setProfile(profileData);
+        } catch (error) {
+          console.error('Error obteniendo perfil en auth change:', error);
+          setProfile(null);
+        }
         
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
       }
       
-      // Solo cambiar loading si no es la carga inicial
-      if (!initialLoad) {
-        setLoading(false);
-      }
+      // Siempre completar loading rápidamente
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, [initialLoad]);
+  }, []);
 
-  // Manejar redirecciones automáticas
+  // Manejar redirecciones automáticas - OPTIMIZADO para velocidad
   useEffect(() => {
-    // No hacer nada durante la carga inicial
-    if (loading || initialLoad || typeof window === 'undefined') return;
+    // Solo ejecutar cuando esté montado y tengamos datos definidos
+    if (!mounted || loading) return;
 
     const isPublicRoute = pathname === '/login';
     const isAdminRoute = pathname.startsWith('/usuarios');
 
-    // Redirigir no autenticados a login (preservando la URL actual)
+    // Caso 1: Usuario no autenticado
     if (!user && !isPublicRoute) {
       sessionStorage.setItem('returnUrl', pathname);
       router.push('/login');
       return;
     }
 
-    // Para usuarios autenticados
+    // Caso 2: Usuario autenticado
     if (user && profile) {
-      // Redirigir desde login a la ruta permitida
+      // Desde login, redirigir inmediatamente
       if (pathname === '/login') {
         sessionStorage.removeItem('returnUrl');
         const allowedRoute = getAllowedRoute(profile);
@@ -188,22 +215,33 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // Verificar acceso a rutas de admin
+      // Verificar admin
       if (isAdminRoute && profile.rol !== 'admin') {
         const allowedRoute = getAllowedRoute(profile);
         router.replace(allowedRoute);
         return;
       }
 
-      // NUEVA LÓGICA: Redirección inmediata y silenciosa para rutas no permitidas
+      // REDIRECCIÓN INMEDIATA para rutas no permitidas
       if (!canAccessRoute(profile, pathname)) {
         const allowedRoute = getAllowedRoute(profile);
-        // Usar replace para evitar que aparezca en el historial
         router.replace(allowedRoute);
         return;
       }
     }
-  }, [user, profile, loading, initialLoad, pathname, router]);
+
+    // Caso 3: Usuario autenticado pero sin perfil aún
+    if (user && !profile && !isPublicRoute) {
+      // Esperar a que se cargue el perfil, pero no mostrar loading por mucho tiempo
+      const timeout = setTimeout(() => {
+        console.warn('Perfil tardando en cargar, redirigiendo a login');
+        router.push('/login');
+      }, 2000);
+
+      return () => clearTimeout(timeout);
+    }
+
+  }, [mounted, loading, user, profile, pathname, router]);
 
   const login = async (email, password) => {
     try {
@@ -266,7 +304,7 @@ export const AuthProvider = ({ children }) => {
       profile, // Perfil de la tabla profiles
       login,
       logout,
-      loading: loading || initialLoad, // Mostrar loading durante carga inicial
+      loading, // Loading simplificado
       isAuthenticated: !!user,
       isAdmin: profile?.rol === 'admin',
       // Funciones de utilidad

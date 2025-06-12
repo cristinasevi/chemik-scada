@@ -38,8 +38,21 @@ const Header = () => {
 
   // Función para obtener el título dinámico basado en la ruta y permisos del usuario
   const getPageTitle = () => {
-    // Si el usuario solo tiene una planta, mostrar contexto apropiado
-    const singlePlant = getSinglePlant();
+    // Determinar contexto actual
+    const getCurrentContext = () => {
+      if (pathname.startsWith('/lamaja')) return 'LAMAJA';
+      if (pathname.startsWith('/retamar')) return 'RETAMAR';
+      
+      // Para rutas generales, verificar parámetro de planta
+      const searchParams = new URLSearchParams(window.location.search);
+      const plantaParam = searchParams.get('planta');
+      if (plantaParam === 'lamaja') return 'LAMAJA';
+      if (plantaParam === 'retamar') return 'RETAMAR';
+      
+      return 'MAIN';
+    };
+
+    const context = getCurrentContext();
     
     if (pathname.startsWith('/lamaja')) {
       // Mapeo de rutas específicas de La Maja
@@ -72,20 +85,34 @@ const Header = () => {
       return `Retamar - ${sectionName}`;
       
     } else {
-      // Mapeo de otras rutas del sistema
-      const generalRoutes = {
-        '/': singlePlant ? 
-          `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
-          'Dashboard Principal',
-        '/gestion-documentos': 'Gestión de Documentos',
-        '/exportacion-variables': 'Exportación de Variables',
-        '/usuarios': 'Gestión de Usuarios'
-      };
+      // Para rutas generales, considerar el contexto
+      if (pathname === '/gestion-documentos') {
+        if (context === 'LAMAJA') return 'La Maja - Gestión de Documentos';
+        if (context === 'RETAMAR') return 'Retamar - Gestión de Documentos';
+        return 'Gestión de Documentos';
+      }
       
-      return generalRoutes[pathname] || 
-        (singlePlant ? 
+      if (pathname === '/exportacion-variables') {
+        if (context === 'LAMAJA') return 'La Maja - Exportación de Variables';
+        if (context === 'RETAMAR') return 'Retamar - Exportación de Variables';
+        return 'Exportación de Variables';
+      }
+
+      if (pathname === '/usuarios') {
+        return 'Gestión de Usuarios';
+      }
+
+      // Para la página principal
+      const singlePlant = getSinglePlant();
+      if (pathname === '/') {
+        return singlePlant ? 
           `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
-          'Dashboard Principal');
+          'Dashboard Principal';
+      }
+      
+      return singlePlant ? 
+        `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
+        'Dashboard Principal';
     }
   };
 
@@ -166,12 +193,6 @@ const Header = () => {
                   <p className="text-xs text-secondary">
                     {user.role === 'admin' ? 'Administrador' : 'Cliente'}
                   </p>
-                  {restrictionInfo && (
-                    <>
-                      <span className="text-xs text-secondary">•</span>
-                      <p className="text-xs text-secondary">Acceso limitado</p>
-                    </>
-                  )}
                 </div>
               </div>
             </button>

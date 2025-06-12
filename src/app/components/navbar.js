@@ -12,10 +12,38 @@ const Navbar = () => {
   const searchParams = useSearchParams();
   const { isAdmin, profile, canAccessMainDashboard, getSinglePlant } = useAuth();
 
-  // Determinar si estamos en una subsección o en contexto de planta
-  const plantaParam = searchParams.get('planta');
-  const isInLamaja = pathname.startsWith('/lamaja') || plantaParam === 'lamaja';
-  const isInRetamar = pathname.startsWith('/retamar') || plantaParam === 'retamar';
+  // Determinar contexto actual más inteligentemente
+  const getCurrentContext = () => {
+    // Si estamos en una ruta de planta específica, siempre mostrar menú de esa planta
+    if (pathname.startsWith('/lamaja')) {
+      return 'LAMAJA';
+    }
+    if (pathname.startsWith('/retamar')) {
+      return 'RETAMAR';
+    }
+
+    // Para rutas generales (gestión-documentos, exportación-variables)
+    // verificar el parámetro de planta en la URL
+    const plantaParam = searchParams.get('planta');
+    if (plantaParam === 'lamaja') {
+      return 'LAMAJA';
+    }
+    if (plantaParam === 'retamar') {
+      return 'RETAMAR';
+    }
+
+    // Si es un usuario con una sola planta y está en ruta general SIN parámetro
+    // mantener el contexto de su planta
+    const singlePlant = getSinglePlant();
+    if (singlePlant && (pathname === '/gestion-documentos' || pathname === '/exportacion-variables')) {
+      return singlePlant;
+    }
+
+    // Para rutas principales o usuarios admin sin contexto específico
+    return 'MAIN';
+  };
+
+  const currentContext = getCurrentContext();
 
   // Función para obtener plantas disponibles para el usuario
   const getAvailablePlants = () => {
@@ -42,7 +70,7 @@ const Navbar = () => {
     return availablePlants;
   };
 
-  // Lista principal de navegación (menú raíz)
+  // Lista principal de navegación (menú raíz) 
   const getMainItems = () => {
     const items = [];
     
@@ -68,7 +96,7 @@ const Navbar = () => {
   const getLamajaItems = () => {
     const items = [];
     
-    // Solo agregar "Volver al menú principal" si puede acceder al dashboard principal
+    // Navegación entre contextos
     if (canAccessMainDashboard()) {
       items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
     } else {
@@ -79,6 +107,7 @@ const Navbar = () => {
       });
     }
 
+    // Secciones específicas de La Maja
     items.push(
       { icon: BarChart3, label: "Dashboard La Maja", path: "/lamaja" },
       { icon: Map, label: "Heat Maps", path: "/lamaja/heat-maps" },
@@ -95,7 +124,7 @@ const Navbar = () => {
   const getRetamarItems = () => {
     const items = [];
     
-    // Solo agregar "Volver al menú principal" si puede acceder al dashboard principal
+    // Navegación entre contextos
     if (canAccessMainDashboard()) {
       items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
     } else {
@@ -106,6 +135,7 @@ const Navbar = () => {
       });
     }
 
+    // Secciones específicas de Retamar
     items.push(
       { icon: BarChart3, label: "Dashboard Retamar", path: "/retamar" },
       { icon: Map, label: "Heat Maps", path: "/retamar/heat-maps" },
@@ -120,16 +150,27 @@ const Navbar = () => {
     return items;
   };
 
-  // Items del footer - incluir contexto de planta en exportación
+  // Items del footer
   const getFooterItems = () => {
-    const exportPath = isInLamaja ? "/exportacion-variables?planta=lamaja" : 
-                     isInRetamar ? "/exportacion-variables?planta=retamar" : 
-                     "/exportacion-variables";
+    const items = [];
 
-    const items = [
-      { icon: FileText, label: "Gestión de Documentos", path: "/gestion-documentos" },
+    // Determinar rutas con contexto de planta
+    let documentosPath = "/gestion-documentos";
+    let exportPath = "/exportacion-variables";
+
+    // Si estamos en contexto de planta, mantener ese contexto en las rutas generales
+    if (currentContext === 'LAMAJA') {
+      documentosPath = "/gestion-documentos?planta=lamaja";
+      exportPath = "/exportacion-variables?planta=lamaja";
+    } else if (currentContext === 'RETAMAR') {
+      documentosPath = "/gestion-documentos?planta=retamar";
+      exportPath = "/exportacion-variables?planta=retamar";
+    }
+
+    items.push(
+      { icon: FileText, label: "Gestión de Documentos", path: documentosPath },
       { icon: Download, label: "Exportación de variables", path: exportPath }
-    ];
+    );
 
     // Solo agregar gestión de usuarios si es admin
     if (isAdmin) {
@@ -139,26 +180,34 @@ const Navbar = () => {
     return items;
   };
 
-  // Determinar qué items mostrar según la ubicación
+  // Determinar qué items mostrar según el contexto actual
   const getMenuItems = () => {
-    if (isInLamaja) return getLamajaItems();
-    if (isInRetamar) return getRetamarItems();
-    return getMainItems();
+    switch (currentContext) {
+      case 'LAMAJA':
+        return getLamajaItems();
+      case 'RETAMAR':
+        return getRetamarItems();
+      default:
+        return getMainItems();
+    }
   };
 
   // Determinar el título del menú
   const getMenuTitle = () => {
-    if (isInLamaja) return "La Maja";
-    if (isInRetamar) return "Retamar";
-    
-    // Si el usuario solo tiene una planta, mostrar el nombre de esa planta
-    const singlePlant = getSinglePlant();
-    if (singlePlant) {
-      return singlePlant === 'LAMAJA' ? 'La Maja' : 
-             singlePlant === 'RETAMAR' ? 'Retamar' : 'Menú Principal';
+    switch (currentContext) {
+      case 'LAMAJA':
+        return "La Maja";
+      case 'RETAMAR':
+        return "Retamar";
+      default:
+        // Si el usuario solo tiene una planta, mostrar el nombre de esa planta
+        const singlePlant = getSinglePlant();
+        if (singlePlant) {
+          return singlePlant === 'LAMAJA' ? 'La Maja' : 
+                 singlePlant === 'RETAMAR' ? 'Retamar' : 'Menú Principal';
+        }
+        return "Menú Principal";
     }
-    
-    return "Menú Principal";
   };
 
   const handleItemClick = (item) => {
@@ -184,11 +233,26 @@ const Navbar = () => {
   };
 
   const isActive = (path) => {
-    // Para exportacion-variables, considerar activo sin importar query params
-    if (path.includes('/exportacion-variables') && pathname === '/exportacion-variables') {
+    // Caso especial: si el path incluye parámetros de query
+    if (path.includes('?')) {
+      const [basePath, queryString] = path.split('?');
+      const urlParams = new URLSearchParams(queryString);
+      
+      // Verificar que la ruta base coincida
+      if (pathname !== basePath) return false;
+      
+      // Verificar que los parámetros importantes coincidan
+      for (const [key, value] of urlParams.entries()) {
+        if (searchParams.get(key) !== value) return false;
+      }
+      
       return true;
     }
-    return pathname === path;
+    
+    // Para rutas sin parámetros, verificar coincidencia exacta
+    if (pathname === path) return true;
+    
+    return false;
   };
 
   const currentMenuItems = getMenuItems();
