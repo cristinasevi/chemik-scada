@@ -95,27 +95,42 @@ const Navbar = () => {
   // Submenú para La Maja
   const getLamajaItems = () => {
     const items = [];
+    const singlePlant = getSinglePlant();
     
-    // Navegación entre contextos
-    if (canAccessMainDashboard()) {
-      items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
-    } else {
-      // Si no puede acceder al dashboard principal, mostrar plantas disponibles
-      const availablePlants = getAvailablePlants().filter(p => p.id !== 'LAMAJA');
-      availablePlants.forEach(plant => {
-        items.push({ icon: Activity, label: `Ir a ${plant.label}`, path: plant.path });
-      });
+    // Navegación entre contextos - solo si no es cliente con planta única
+    if (singlePlant !== 'LAMAJA') {
+      if (canAccessMainDashboard()) {
+        items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
+      } else {
+        // Si no puede acceder al dashboard principal, mostrar plantas disponibles
+        const availablePlants = getAvailablePlants().filter(p => p.id !== 'LAMAJA');
+        availablePlants.forEach(plant => {
+          items.push({ icon: Activity, label: `Ir a ${plant.label}`, path: plant.path });
+        });
+      }
     }
 
     // Secciones específicas de La Maja
     items.push(
-      { icon: BarChart3, label: "Dashboard La Maja", path: "/lamaja" },
-      { icon: Map, label: "Heat Maps", path: "/lamaja/heat-maps" },
-      { icon: PieChart, label: "PV Resumen", path: "/lamaja/pv-resumen" },
-      { icon: Zap, label: "Resumen Inversores", path: "/lamaja/resumen-inversores" },
-      { icon: Wrench, label: "Detalle Inversor", path: "/lamaja/detalle-inversor" },
-      { icon: Activity, label: "Subestación y CTs", path: "/lamaja/subestacion-cts" }
+      { icon: BarChart3, label: "Dashboard La Maja", path: "/lamaja" }
     );
+
+    // Solo agregar PV Resumen para clientes con planta única o todos los items para admin/usuarios múltiples
+    if (singlePlant === 'LAMAJA') {
+      // Cliente con solo La Maja - menú restringido
+      items.push(
+        { icon: PieChart, label: "PV Resumen", path: "/lamaja/pv-resumen" }
+      );
+    } else {
+      // Admin o usuario con múltiples plantas - menú completo
+      items.push(
+        { icon: Map, label: "Heat Maps", path: "/lamaja/heat-maps" },
+        { icon: PieChart, label: "PV Resumen", path: "/lamaja/pv-resumen" },
+        { icon: Zap, label: "Resumen Inversores", path: "/lamaja/resumen-inversores" },
+        { icon: Wrench, label: "Detalle Inversor", path: "/lamaja/detalle-inversor" },
+        { icon: Activity, label: "Subestación y CTs", path: "/lamaja/subestacion-cts" }
+      );
+    }
 
     return items;
   };
@@ -123,29 +138,44 @@ const Navbar = () => {
   // Submenú para Retamar
   const getRetamarItems = () => {
     const items = [];
+    const singlePlant = getSinglePlant();
     
-    // Navegación entre contextos
-    if (canAccessMainDashboard()) {
-      items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
-    } else {
-      // Si no puede acceder al dashboard principal, mostrar plantas disponibles
-      const availablePlants = getAvailablePlants().filter(p => p.id !== 'RETAMAR');
-      availablePlants.forEach(plant => {
-        items.push({ icon: Activity, label: `Ir a ${plant.label}`, path: plant.path });
-      });
+    // Navegación entre contextos - solo si no es cliente con planta única
+    if (singlePlant !== 'RETAMAR') {
+      if (canAccessMainDashboard()) {
+        items.push({ icon: ArrowLeft, label: "Volver al menú principal", path: "/" });
+      } else {
+        // Si no puede acceder al dashboard principal, mostrar plantas disponibles
+        const availablePlants = getAvailablePlants().filter(p => p.id !== 'RETAMAR');
+        availablePlants.forEach(plant => {
+          items.push({ icon: Activity, label: `Ir a ${plant.label}`, path: plant.path });
+        });
+      }
     }
 
     // Secciones específicas de Retamar
     items.push(
-      { icon: BarChart3, label: "Dashboard Retamar", path: "/retamar" },
-      { icon: Map, label: "Heat Maps", path: "/retamar/heat-maps" },
-      { icon: PieChart, label: "PV Resumen", path: "/retamar/pv-resumen" },
-      { icon: Zap, label: "Resumen Inversores", path: "/retamar/resumen-inversores" },
-      { icon: Wrench, label: "Detalle Inversor", path: "/retamar/detalle-inversor" },
-      { icon: Activity, label: "Resumen Trackers", path: "/retamar/resumen-trackers" },
-      { icon: Wrench, label: "Detalle Tracker", path: "/retamar/detalle-tracker" },
-      { icon: FileText, label: "Facturación", path: "/retamar/facturacion" }
+      { icon: BarChart3, label: "Dashboard Retamar", path: "/retamar" }
     );
+
+    // Solo agregar PV Resumen para clientes con planta única o todos los items para admin/usuarios múltiples
+    if (singlePlant === 'RETAMAR') {
+      // Cliente con solo Retamar - menú restringido
+      items.push(
+        { icon: PieChart, label: "PV Resumen", path: "/retamar/pv-resumen" }
+      );
+    } else {
+      // Admin o usuario con múltiples plantas - menú completo
+      items.push(
+        { icon: Map, label: "Heat Maps", path: "/retamar/heat-maps" },
+        { icon: PieChart, label: "PV Resumen", path: "/retamar/pv-resumen" },
+        { icon: Zap, label: "Resumen Inversores", path: "/retamar/resumen-inversores" },
+        { icon: Wrench, label: "Detalle Inversor", path: "/retamar/detalle-inversor" },
+        { icon: Activity, label: "Resumen Trackers", path: "/retamar/resumen-trackers" },
+        { icon: Wrench, label: "Detalle Tracker", path: "/retamar/detalle-tracker" },
+        { icon: FileText, label: "Facturación", path: "/retamar/facturacion" }
+      );
+    }
 
     return items;
   };
@@ -153,24 +183,38 @@ const Navbar = () => {
   // Items del footer
   const getFooterItems = () => {
     const items = [];
+    const singlePlant = getSinglePlant();
 
     // Determinar rutas con contexto de planta
     let documentosPath = "/gestion-documentos";
-    let exportPath = "/exportacion-variables";
 
     // Si estamos en contexto de planta, mantener ese contexto en las rutas generales
     if (currentContext === 'LAMAJA') {
       documentosPath = "/gestion-documentos?planta=lamaja";
-      exportPath = "/exportacion-variables?planta=lamaja";
     } else if (currentContext === 'RETAMAR') {
       documentosPath = "/gestion-documentos?planta=retamar";
-      exportPath = "/exportacion-variables?planta=retamar";
     }
 
+    // Solo agregar Gestión de Documentos (siempre visible para todos los usuarios)
     items.push(
-      { icon: FileText, label: "Gestión de Documentos", path: documentosPath },
-      { icon: Download, label: "Exportación de variables", path: exportPath }
+      { icon: FileText, label: "Gestión de Documentos", path: documentosPath }
     );
+
+    // NO agregar exportación de variables para clientes con planta única
+    // Solo agregar para admin o usuarios con múltiples plantas
+    if (!singlePlant || isAdmin) {
+      let exportPath = "/exportacion-variables";
+      
+      if (currentContext === 'LAMAJA') {
+        exportPath = "/exportacion-variables?planta=lamaja";
+      } else if (currentContext === 'RETAMAR') {
+        exportPath = "/exportacion-variables?planta=retamar";
+      }
+      
+      items.push(
+        { icon: Download, label: "Exportación de variables", path: exportPath }
+      );
+    }
 
     // Solo agregar gestión de usuarios si es admin
     if (isAdmin) {
