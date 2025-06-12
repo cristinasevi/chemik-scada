@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 import Navbar from './navbar';
 
 const Header = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, profile, getSinglePlant, canAccessMainDashboard } = useAuth();
   const pathname = usePathname();
   const [isDark, setIsDark] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -36,8 +36,11 @@ const Header = () => {
     logout();
   };
 
-  // Función para obtener el título dinámico basado en la ruta
+  // Función para obtener el título dinámico basado en la ruta y permisos del usuario
   const getPageTitle = () => {
+    // Si el usuario solo tiene una planta, mostrar contexto apropiado
+    const singlePlant = getSinglePlant();
+    
     if (pathname.startsWith('/lamaja')) {
       // Mapeo de rutas específicas de La Maja
       const lamajaRoutes = {
@@ -71,13 +74,18 @@ const Header = () => {
     } else {
       // Mapeo de otras rutas del sistema
       const generalRoutes = {
-        '/': 'Dashboard Principal',
+        '/': singlePlant ? 
+          `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
+          'Dashboard Principal',
         '/gestion-documentos': 'Gestión de Documentos',
         '/exportacion-variables': 'Exportación de Variables',
         '/usuarios': 'Gestión de Usuarios'
       };
       
-      return generalRoutes[pathname] || 'Dashboard Principal';
+      return generalRoutes[pathname] || 
+        (singlePlant ? 
+          `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
+          'Dashboard Principal');
     }
   };
 
@@ -88,10 +96,31 @@ const Header = () => {
     } else if (pathname.startsWith('/retamar')) {
       return;
     }
-    return;
+    return 'text-primary';
+  };
+
+  // Función para obtener información de restricción del usuario
+  const getUserRestrictionInfo = () => {
+    if (!profile || profile.rol === 'admin') return null;
+    
+    const singlePlant = getSinglePlant();
+    if (singlePlant) {
+      return;
+    }
+    
+    if (!canAccessMainDashboard()) {
+      const plantas = profile.plantas_asignadas || [];
+      if (plantas.length > 1) {
+        return `Acceso a ${plantas.length} plantas`;
+      }
+    }
+    
+    return null;
   };
 
   if (!isClient || !user) return null;
+
+  const restrictionInfo = getUserRestrictionInfo();
 
   return (
     <header className="bg-header sticky top-0 z-50">
@@ -110,9 +139,16 @@ const Header = () => {
         </div>
 
         <div className="flex justify-center">
-          <h1 className={`text-xl font-semibold ${getTitleColor()} hidden sm:block transition-colors duration-200`}>
-            {getPageTitle()}
-          </h1>
+          <div className="text-center">
+            <h1 className={`text-xl font-semibold ${getTitleColor()} hidden sm:block transition-colors duration-200`}>
+              {getPageTitle()}
+            </h1>
+            {restrictionInfo && (
+              <p className="text-xs text-secondary hidden sm:block">
+                {restrictionInfo}
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-end space-x-2">
@@ -126,17 +162,38 @@ const Header = () => {
               </div>
               <div className="hidden sm:block text-left">
                 <p className="text-sm font-medium text-primary">{user.name}</p>
-                <p className="text-xs text-secondary">{user.role === 'admin' ? 'Administrador' : 'Cliente'}</p>
+                <div className="flex items-center gap-1">
+                  <p className="text-xs text-secondary">
+                    {user.role === 'admin' ? 'Administrador' : 'Cliente'}
+                  </p>
+                  {restrictionInfo && (
+                    <>
+                      <span className="text-xs text-secondary">•</span>
+                      <p className="text-xs text-secondary">Acceso limitado</p>
+                    </>
+                  )}
+                </div>
               </div>
             </button>
 
             {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-panel rounded-lg shadow-lg border-custom z-50">
+              <div className="absolute right-0 mt-2 w-56 bg-panel rounded-lg shadow-lg border-custom z-50">
                 <div className="p-4 border-b border-custom">
                   <p className="font-semibold text-primary">{user.name}</p>
                   <p className="text-sm text-muted">{user.username}</p>
-                  <p className="text-xs text-secondary capitalize">{user.role === 'admin' ? 'Administrador' : 'Cliente'}</p>
+                  <div className="flex items-center gap-1 mt-1">
+                    <p className="text-xs text-secondary capitalize">
+                      {user.role === 'admin' ? 'Administrador' : 'Cliente'}
+                    </p>
+                    {restrictionInfo && (
+                      <>
+                        <span className="text-xs text-secondary">•</span>
+                        <p className="text-xs text-secondary">Limitado</p>
+                      </>
+                    )}
+                  </div>
                 </div>
+                
                 <div className="p-2">
                   <UserMenuItem label="Perfil" icon={User} />
                   <UserMenuItem label="Notificaciones" icon={Bell} />

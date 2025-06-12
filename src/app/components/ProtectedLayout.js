@@ -3,6 +3,7 @@
 import { useAuth } from '../contexts/AuthContext';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import RouteGuard from './RouteGuard';
 
 const ProtectedLayout = ({ children }) => {
   const { user, loading } = useAuth();
@@ -34,8 +35,12 @@ const ProtectedLayout = ({ children }) => {
   // Sin usuario = el AuthContext se encarga de redirigir
   if (!user) return null;
 
-  // Con usuario válido = mostrar contenido
-  return children;
+  // Con usuario válido = mostrar contenido con protección de rutas
+  return (
+    <RouteGuard>
+      {children}
+    </RouteGuard>
+  );
 };
 
 export default ProtectedLayout;
