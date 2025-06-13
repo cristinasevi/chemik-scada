@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search,
     Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
@@ -72,111 +72,56 @@ const GestionDocumentosPage = () => {
         setConfirmAction(null);
     };
 
+    const reloadAllData = useCallback(async (silent = false) => {
+        if (!silent) {
+            setLoading(true);
+        }
+
+        try {
+            // Cargar datos frescos SIN limpiar estados primero
+            const [foldersResult, documentsResult] = await Promise.all([
+                loadFoldersFromSupabase(true),
+                loadDocumentsFromSupabase(true)
+            ]);
+
+            if (!silent) {
+                showNotification('Datos actualizados', 'success');
+            }
+        } catch (error) {
+            console.error('Error reloading data:', error);
+            if (!silent) {
+                showNotification('Error al actualizar datos: ' + error.message, 'error');
+            }
+        } finally {
+            if (!silent) {
+                setLoading(false);
+            }
+        }
+    }, []);
+
+    const refreshData = reloadAllData;
+
     const handleBackgroundClick = (e) => {
         if (e.target === e.currentTarget) {
             setSelectedFolder('root');
         }
     };
 
-    // Configurar listeners en tiempo real para Supabase
     useEffect(() => {
-        let documentsSubscription;
-        let foldersSubscription;
-
-        const setupRealTimeListeners = async () => {
+        const pollInterval = setInterval(async () => {
             try {
-                documentsSubscription = supabase
-                    .channel('documents_realtime_channel')
-                    .on('postgres_changes', {
-                        event: '*',
-                        schema: 'public',
-                        table: 'documents'
-                    }, (payload) => {
-
-                        if (payload.eventType === 'INSERT') {
-                            setDocuments(prev => {
-                                const exists = prev.some(doc => doc.id === payload.new.id);
-                                if (!exists) {
-                                    return [payload.new, ...prev];
-                                }
-                                return prev;
-                            });
-                            showNotification('Nuevo documento agregado', 'info');
-                        } else if (payload.eventType === 'UPDATE') {
-                            setDocuments(prev => prev.map(doc =>
-                                doc.id === payload.new.id ? payload.new : doc
-                            ));
-                            showNotification('Documento actualizado', 'info');
-                        } else if (payload.eventType === 'DELETE') {
-                            setDocuments(prev => prev.filter(doc => doc.id !== payload.old.id));
-                            showNotification('Documento eliminado', 'info');
-                        }
-                    })
-                    .subscribe();
-
-                foldersSubscription = supabase
-                    .channel('folders_realtime_channel')
-                    .on('postgres_changes', {
-                        event: '*',
-                        schema: 'public',
-                        table: 'folders'
-                    }, (payload) => {
-
-                        if (payload.eventType === 'INSERT') {
-                            setFolders(prev => {
-                                const exists = prev.some(folder => folder.id === payload.new.id);
-                                if (!exists) {
-                                    return [...prev, payload.new];
-                                }
-                                return prev;
-                            });
-                            showNotification('Nueva carpeta creada', 'info');
-                        } else if (payload.eventType === 'UPDATE') {
-                            setFolders(prev => prev.map(folder =>
-                                folder.id === payload.new.id ? payload.new : folder
-                            ));
-                            showNotification('Carpeta actualizada', 'info');
-                        } else if (payload.eventType === 'DELETE') {
-                            setFolders(prev => prev.filter(folder => folder.id !== payload.old.id));
-                            showNotification('Carpeta eliminada', 'info');
-
-                            // Si era la carpeta seleccionada, volver a root
-                            setSelectedFolder(current => {
-                                if (current === payload.old.id) {
-                                    return 'root';
-                                }
-                                return current;
-                            });
-
-                            // Remover de carpetas expandidas
-                            setExpandedFolders(prev => {
-                                const newSet = new Set(prev);
-                                newSet.delete(payload.old.id);
-                                return newSet;
-                            });
-                        }
-                    })
-                    .subscribe();
-
+                if (!isUploading && !loading) {
+                    await reloadAllData(true);
+                }
             } catch (error) {
-                console.error('Error setting up real-time listeners:', error);
-                // Continuar sin real-time si hay problemas
+                console.error('Error en polling:', error);
             }
-        };
-
-        setupRealTimeListeners();
+        }, 5000);
 
         return () => {
-
-            if (documentsSubscription) {
-                supabase.removeChannel(documentsSubscription);
-            }
-
-            if (foldersSubscription) {
-                supabase.removeChannel(foldersSubscription);
-            }
+            clearInterval(pollInterval);
         };
-    }, []);
+    }, [isUploading, loading, reloadAllData]);
 
     const startCreatingFolder = () => {
         setCreatingNewFolder(true);
@@ -197,6 +142,7 @@ const GestionDocumentosPage = () => {
             setNewFolderName('');
 
             await refreshData(true);
+
             showNotification('Carpeta creada correctamente', 'success');
         } catch (error) {
             console.error('Error creating folder:', error);
@@ -368,24 +314,29 @@ const GestionDocumentosPage = () => {
         return mimeTypes[ext] || 'application/octet-stream';
     };
 
-    const loadFoldersFromSupabase = async () => {
+    const loadFoldersFromSupabase = async (skipNotification = true) => {
         try {
             const { data, error } = await supabase
                 .from('folders')
                 .select('*')
                 .order('name');
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error cargando carpetas:', error);
+                throw error;
+            }
 
             if (!data || data.length === 0) {
                 await createInitialStructure();
-                return;
+                return [];
             }
 
             setFolders(data);
+            return data;
         } catch (error) {
             console.error('Error loading folders:', error);
             await createInitialStructure();
+            return [];
         }
     };
 
@@ -507,8 +458,6 @@ const GestionDocumentosPage = () => {
             console.error('Error renaming folder:', error);
             showNotification('Error al renombrar carpeta: ' + error.message, 'error');
 
-            await refreshData(true);
-
             setEditingFolder(null);
             setEditingName('');
         } finally {
@@ -554,9 +503,9 @@ const GestionDocumentosPage = () => {
                     .remove([`${folderPath}/.emptyFolderPlaceholder`]);
             }
 
-            await refreshData(true);
-
             showNotification('Carpeta eliminada correctamente', 'success');
+
+            await refreshData(true);
         } catch (error) {
             console.error('Error deleting folder:', error);
             showNotification('Error al eliminar carpeta: ' + error.message, 'error');
@@ -577,19 +526,25 @@ const GestionDocumentosPage = () => {
         setShowFolderMenu(null);
     };
 
-    const loadDocumentsFromSupabase = async () => {
+    const loadDocumentsFromSupabase = async (skipNotification = true) => {
         try {
             const { data, error } = await supabase
                 .from('documents')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error cargando documentos:', error);
+                throw error;
+            }
 
             setDocuments(data || []);
+
+            return data || [];
         } catch (error) {
             console.error('Error loading documents:', error);
             setDocuments([]);
+            return [];
         }
     };
 
@@ -654,9 +609,56 @@ const GestionDocumentosPage = () => {
         return buildPath(folderId);
     };
 
+    const sanitizeFileName = (fileName) => {
+        try {
+            // Separar nombre y extensión
+            const lastDotIndex = fileName.lastIndexOf('.');
+            let name = fileName;
+            let extension = '';
+
+            if (lastDotIndex > 0) {
+                name = fileName.substring(0, lastDotIndex);
+                extension = fileName.substring(lastDotIndex);
+            }
+
+            // Sanitización estricta para Supabase Storage
+            const sanitizedName = name
+                .normalize('NFD') // Descomponer caracteres acentuados
+                .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+                .replace(/ñ/g, 'n').replace(/Ñ/g, 'N') // Reemplazar ñ
+                .replace(/[^a-zA-Z0-9\-_]/g, '_') // Solo letras, números, guiones y guiones bajos
+                .replace(/_{2,}/g, '_') // Reemplazar múltiples guiones bajos por uno solo
+                .replace(/^_+|_+$/g, '') // Eliminar guiones bajos al inicio y final
+                .trim();
+
+            // Asegurar que el nombre no esté vacío
+            const finalName = sanitizedName || 'archivo';
+            const result = finalName + extension;
+
+            return result;
+        } catch (error) {
+            console.error('Error en sanitizeFileName:', error);
+            // Fallback super seguro
+            const timestamp = Date.now();
+            const ext = fileName.split('.').pop() || 'txt';
+            return `archivo_${timestamp}.${ext}`;
+        }
+    };
+
     const uploadFileToSupabase = async (file, folderId = 'root') => {
         try {
-            let fileName = file.name;
+            // Verificar que el archivo sea válido
+            if (!file || !file.name) {
+                throw new Error('Archivo inválido');
+            }
+
+            // USAR SANITIZACIÓN ESTRICTA para Supabase Storage
+            let fileName = sanitizeFileName(file.name);
+
+            if (!fileName || fileName === '.') {
+                throw new Error('Nombre de archivo inválido después de sanitización');
+            }
+
             let filePath;
 
             if (folderId === 'root') {
@@ -669,16 +671,23 @@ const GestionDocumentosPage = () => {
             const pathParts = filePath.split('/');
             const folderToCheck = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
 
-            const { data: existingFile } = await supabase.storage
+            // Verificar si ya existe un archivo con el mismo nombre
+            const { data: existingFile, error: listError } = await supabase.storage
                 .from('documents')
                 .list(folderToCheck, {
                     search: fileName
                 });
 
+            if (listError) {
+                console.warn('Error al verificar archivos existentes:', listError);
+                // Continuar sin verificar duplicados
+            }
+
             if (existingFile && existingFile.length > 0) {
-                const fileExt = file.name.split('.').pop();
-                const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.'));
-                fileName = `${nameWithoutExt}_${Date.now()}.${fileExt}`;
+                // Crear nombre único si ya existe
+                const fileExt = fileName.substring(fileName.lastIndexOf('.')) || '';
+                const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+                fileName = `${nameWithoutExt}_${Date.now()}${fileExt}`;
 
                 if (folderId === 'root') {
                     filePath = fileName;
@@ -688,23 +697,29 @@ const GestionDocumentosPage = () => {
                 }
             }
 
+            // Subir archivo
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('documents')
                 .upload(filePath, file);
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                console.error('Error en upload de Supabase:', uploadError);
+                throw new Error(`Error al subir archivo: ${uploadError.message}`);
+            }
 
+            // Obtener URL pública
             const { data: { publicUrl } } = supabase.storage
                 .from('documents')
                 .getPublicUrl(filePath);
 
+            // Preparar datos para la base de datos
             const documentData = {
                 name: file.name,
                 original_name: file.name,
                 file_path: filePath,
                 file_url: publicUrl,
                 size: file.size,
-                mime_type: file.type,
+                mime_type: file.type || 'application/octet-stream',
                 folder_id: folderId,
                 uploaded_by: user?.username || 'Anónimo',
                 description: '',
@@ -715,18 +730,30 @@ const GestionDocumentosPage = () => {
                 updated_at: new Date().toISOString()
             };
 
+            // Guardar en la base de datos
             const { data: documentRecord, error: dbError } = await supabase
                 .from('documents')
                 .insert([documentData])
                 .select()
                 .single();
 
-            if (dbError) throw dbError;
+            if (dbError) {
+                console.error('Error en base de datos:', dbError);
+                // Intentar limpiar el archivo subido si falla la DB
+                try {
+                    await supabase.storage
+                        .from('documents')
+                        .remove([filePath]);
+                } catch (cleanupError) {
+                    console.warn('No se pudo limpiar archivo tras error de DB:', cleanupError);
+                }
+                throw new Error(`Error al guardar en base de datos: ${dbError.message}`);
+            }
 
             return documentRecord;
         } catch (error) {
-            console.error('Error uploading file:', error);
-            throw error;
+            const errorMessage = error?.message || 'Error desconocido en upload';
+            throw new Error(errorMessage);
         }
     };
 
@@ -801,8 +828,9 @@ const GestionDocumentosPage = () => {
                 return newSet;
             });
 
-            await refreshData(true);
             showNotification('Documento eliminado correctamente', 'success');
+
+            await refreshData(true);
         } catch (error) {
             console.error('Error deleting document:', error);
             showNotification('Error al eliminar documento: ' + error.message, 'error');
@@ -825,7 +853,6 @@ const GestionDocumentosPage = () => {
 
             await Promise.all(uploadPromises);
 
-            // Refresh automático después de la operación
             await refreshData(true);
 
             showNotification('Archivos subidos correctamente', 'success');
@@ -837,34 +864,14 @@ const GestionDocumentosPage = () => {
         }
     };
 
-    const refreshData = async (silent = false) => {
-        if (!silent) setLoading(true);
-
-        try {
-            await Promise.all([
-                loadFoldersFromSupabase(),
-                loadDocumentsFromSupabase()
-            ]);
-
-            if (!silent) {
-                showNotification('Datos actualizados', 'success');
-            }
-        } catch (error) {
-            console.error('Error refreshing data:', error);
-            if (!silent) {
-                showNotification('Error al actualizar datos: ' + error.message, 'error');
-            }
-        } finally {
-            if (!silent) setLoading(false);
-        }
-    };
-
     useEffect(() => {
         const initializeData = async () => {
             setLoading(true);
             try {
-                await loadFoldersFromSupabase();
-                await loadDocumentsFromSupabase();
+                await Promise.all([
+                    loadFoldersFromSupabase(true),
+                    loadDocumentsFromSupabase(true)
+                ]);
             } catch (error) {
                 console.error('Error initializing data:', error);
                 showNotification('Error al cargar datos: ' + error.message, 'error');
@@ -874,21 +881,6 @@ const GestionDocumentosPage = () => {
         };
 
         initializeData();
-    }, []);
-
-    const handleManualRefresh = async () => {
-        await refreshData(false);
-        await syncAllFromStorage();
-    };
-
-    useEffect(() => {
-        const autoRefreshInterval = setInterval(() => {
-            refreshData(true); // Silent refresh
-        }, 60000);
-
-        return () => {
-            clearInterval(autoRefreshInterval);
-        };
     }, []);
 
     useEffect(() => {
@@ -903,7 +895,11 @@ const GestionDocumentosPage = () => {
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, []);
+    }, [refreshData]);
+
+    const handleManualRefresh = async () => {
+        await reloadAllData(false);
+    };
 
     const handleDocumentSelection = (documentId, isSelected) => {
         setSelectedDocuments(prev => {
