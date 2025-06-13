@@ -8,18 +8,32 @@ const LaMajaAlarmsTable = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Función para obtener el estilo de fondo de fila según severidad
+    const getRowBackgroundClass = (severity) => {
+        switch (severity) {
+            case 'critical':
+                return 'badge-red';
+            case 'warning':
+                return 'badge-yellow';
+            case 'info':
+                return 'row-info';
+            default:
+                return;
+        }
+    };
+
     const loadAlarmsData = async () => {
         try {
             setLoading(true);
             setError(null);
-            
+
             const response = await fetch('/api/alarms-data');
             const result = await response.json();
 
             if (result.alarms && Array.isArray(result.alarms) && result.alarms.length > 0) {
                 // Filtrar solo alarmas de La Maja
-                const lamajAlarms = result.alarms.filter(alarm => 
-                    alarm.plant === 'LA MAJA' || 
+                const lamajAlarms = result.alarms.filter(alarm =>
+                    alarm.plant === 'LA MAJA' ||
                     alarm.plant === 'LAMAJA' ||
                     !alarm.plant
                 );
@@ -52,7 +66,7 @@ const LaMajaAlarmsTable = () => {
     const extractEquipmentName = (alarm) => {
         if (alarm.device) return alarm.device;
         if (alarm.grafanaData?.ruleId) return alarm.grafanaData.ruleId;
-        
+
         const message = alarm.message || '';
         const patterns = [
             /\b(INV\d{2})\b/i,
@@ -76,7 +90,7 @@ const LaMajaAlarmsTable = () => {
 
     useEffect(() => {
         loadAlarmsData();
-        
+
         // Auto-refresh cada 30 segundos
         const interval = setInterval(loadAlarmsData, 30000);
         return () => clearInterval(interval);
@@ -153,14 +167,13 @@ const LaMajaAlarmsTable = () => {
                         </thead>
                         <tbody>
                             {alarms.map((alarm) => (
-                                <tr key={alarm.id} className="border-b border-custom hover-bg">
+                                <tr key={alarm.id} className={`border-b border-custom ${getRowBackgroundClass(alarm.severity)}`}>
                                     <td className="p-4">
                                         <div className="flex items-center gap-2">
                                             <div className="flex flex-col">
                                                 <span className="font-medium text-primary">{alarm.equipment}</span>
                                                 <span className="text-xs text-secondary">La Maja</span>
                                             </div>
-                                            {getSeverityBadge(alarm.severity)}
                                         </div>
                                     </td>
 

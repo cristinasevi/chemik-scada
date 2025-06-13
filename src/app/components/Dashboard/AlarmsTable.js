@@ -106,43 +106,17 @@ const AlarmsTable = () => {
         });
     };
 
-    // // Badge de severidad
-    // const getSeverityBadge = (severity) => {
-    //     const severityConfig = {
-    //         critical: {
-    //             label: 'Crítica',
-    //             color: 'bg-red-500 text-white'
-    //         },
-    //         warning: {
-    //             label: 'Advertencia',
-    //             color: 'bg-yellow-500 text-white'
-    //         },
-    //         info: {
-    //             label: 'Información',
-    //             color: 'bg-blue-500 text-white'
-    //         }
-    //     };
-
-    //     const config = severityConfig[severity] || severityConfig.info;
-
-    //     return (
-    //         <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-    //             {config.label}
-    //         </span>
-    //     );
-    // };
-
     // Función para obtener el estilo de fondo de fila según severidad
     const getRowBackgroundClass = (severity) => {
         switch (severity) {
             case 'critical':
-                return 'row-critical';
+                return 'badge-red';
             case 'warning':
-                return 'row-warning';
+                return 'badge-yellow';
             case 'info':
                 return 'row-info';
             default:
-                return 'hover-bg';
+                return;
         }
     };
 
@@ -187,7 +161,6 @@ const AlarmsTable = () => {
                                                 <span className="font-medium text-primary">{alarm.equipment}</span>
                                                 <span className="text-xs text-secondary">{alarm.plant}</span>
                                             </div>
-                                            {/* {getSeverityBadge(alarm.severity)} */}
                                         </div>
                                     </td>
 
