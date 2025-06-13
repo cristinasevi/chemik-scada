@@ -44,14 +44,12 @@ const GestionDocumentosPage = () => {
         return profile?.rol === 'admin' || profile?.rol === 'empleado';
     };
 
-    // Sistema de notificaciones
     const showNotification = (message, type = 'success') => {
         const id = Date.now();
         const notification = { id, message, type };
 
         setNotifications(prev => [...prev, notification]);
 
-        // Auto-remover después de 4 segundos
         setTimeout(() => {
             setNotifications(prev => prev.filter(n => n.id !== id));
         }, 4000);
@@ -61,7 +59,6 @@ const GestionDocumentosPage = () => {
         setNotifications(prev => prev.filter(n => n.id !== id));
     };
 
-    // Sistema de confirmación
     const showConfirm = (message, onConfirm) => {
         setConfirmAction({ message, onConfirm });
         setShowConfirmModal(true);
@@ -92,20 +89,16 @@ const GestionDocumentosPage = () => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', '');
 
-        // Crear imagen personalizada para el drag
         const dragImage = createDragImage(item, type);
 
-        // Usar la imagen personalizada
         e.dataTransfer.setDragImage(dragImage, 125, 20);
 
-        // Limpiar el elemento temporal después de un momento
         setTimeout(() => {
             if (dragImage && dragImage.parentNode) {
                 document.body.removeChild(dragImage);
             }
         }, 0);
 
-        // Reducir la opacidad del elemento original solo ligeramente
         e.target.style.opacity = '0.7';
     };
 
@@ -117,7 +110,6 @@ const GestionDocumentosPage = () => {
     };
 
     const createDragImage = (item, type) => {
-        // Crear un elemento temporal para la imagen de drag
         const dragElement = document.createElement('div');
         dragElement.style.position = 'absolute';
         dragElement.style.top = '-1000px';
@@ -189,21 +181,17 @@ const GestionDocumentosPage = () => {
     const isValidDropTarget = (draggedItem, targetFolderId) => {
         if (!draggedItem) return false;
 
-        // No se puede mover un elemento a sí mismo
         if (draggedItem.type === 'folder' && draggedItem.id === targetFolderId) {
             return false;
         }
 
-        // Para carpetas: verificar que no sea descendiente
         if (draggedItem.type === 'folder') {
-            // Si el target es root, siempre es válido (a menos que ya esté en root)
             if (targetFolderId === 'root') {
                 return draggedItem.parent_id !== null && draggedItem.parent_id !== 'root';
             }
             return !isDescendantFolder(targetFolderId, draggedItem.id);
         }
 
-        // Para documentos: verificar que no esté ya en esa carpeta
         if (draggedItem.type === 'document') {
             return draggedItem.folder_id !== targetFolderId;
         }
@@ -214,7 +202,7 @@ const GestionDocumentosPage = () => {
     const isDescendantFolder = (folderId, ancestorId) => {
         if (!folderId || folderId === 'root') return false;
 
-        const folder = folders.find(f => f.id === folderId); // ⬅️ CORRECTO: usar folderId
+        const folder = folders.find(f => f.id === folderId);
         if (!folder) return false;
 
         if (folder.parent_id === ancestorId) return true;
@@ -351,7 +339,6 @@ const GestionDocumentosPage = () => {
         }
 
         try {
-            // Cargar datos frescos SIN limpiar estados primero
             const [foldersResult, documentsResult] = await Promise.all([
                 loadFoldersFromSupabase(true),
                 loadDocumentsFromSupabase(true)
@@ -377,7 +364,6 @@ const GestionDocumentosPage = () => {
     const handleBackgroundClick = (e) => {
         if (e.target === e.currentTarget) {
             const singlePlant = getSinglePlant();
-            // Si es cliente con una sola planta, no permitir volver a root
             if (!singlePlant) {
                 setSelectedFolder('root');
             }
@@ -403,7 +389,6 @@ const GestionDocumentosPage = () => {
     const startCreatingFolder = () => {
         const singlePlant = getSinglePlant();
 
-        // Si es cliente con una sola planta, no permitir crear carpetas en la raíz
         if (singlePlant && selectedFolder === 'root') {
             showNotification('No tienes permisos para crear carpetas en el nivel raíz', 'warning');
             return;
@@ -447,12 +432,10 @@ const GestionDocumentosPage = () => {
         return systemFiles.includes(fileName);
     };
 
-    // Función para sincronizar archivos Y CARPETAS huérfanos
     const syncAllFromStorage = async () => {
         try {
             setSyncStatus({ syncing: true, message: 'Sincronizando con Storage...' });
 
-            // Limpiar datos existentes
             await supabase.from('documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
             await supabase.from('folders').delete().neq('id', 'root');
 
@@ -473,7 +456,6 @@ const GestionDocumentosPage = () => {
                     const fullPath = folderPath ? `${folderPath}/${file.name}` : file.name;
 
                     if (file.metadata && !isSystemFile(file.name)) {
-                        // Es un archivo
                         allFiles.push({
                             name: file.name,
                             path: fullPath,
@@ -482,7 +464,6 @@ const GestionDocumentosPage = () => {
                             parentFolderId: parentFolderId
                         });
                     } else if (!file.metadata && !isSystemFile(file.name)) {
-                        // Es una carpeta
                         const folderUniqueId = fullPath || file.name;
 
                         allFolders.push({
@@ -494,7 +475,6 @@ const GestionDocumentosPage = () => {
                             level: level + 1
                         });
 
-                        // Procesar subcarpetas
                         await processFolder(fullPath, folderUniqueId, level + 1);
                     }
                 }
@@ -502,7 +482,6 @@ const GestionDocumentosPage = () => {
 
             await processFolder();
 
-            // Insertar carpetas (ordenadas por nivel)
             allFolders.sort((a, b) => a.level - b.level);
 
             for (const folder of allFolders) {
@@ -532,7 +511,6 @@ const GestionDocumentosPage = () => {
                 }
             }
 
-            // Insertar archivos
             for (const file of allFiles) {
                 try {
                     const { data: { publicUrl } } = supabase.storage
@@ -660,7 +638,6 @@ const GestionDocumentosPage = () => {
 
             const oldStoragePath = getFolderStoragePath(folder.id);
 
-            // Crear nuevo path sanitizado para storage
             let newStoragePath = '';
             if (folder.parent_id) {
                 const parentPath = getFolderStoragePath(folder.parent_id);
@@ -704,8 +681,8 @@ const GestionDocumentosPage = () => {
             const { error: dbError } = await supabase
                 .from('folders')
                 .update({
-                    name: newName, // ← Nombre original CON tildes
-                    original_name: newName, // ← También actualizar original_name
+                    name: newName,
+                    original_name: newName,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', folder.id);
@@ -766,7 +743,6 @@ const GestionDocumentosPage = () => {
 
     const handleDeleteFolder = async (folder) => {
         try {
-            // Verificar si la carpeta tiene archivos o subcarpetas
             const { data: subfolders } = await supabase
                 .from('folders')
                 .select('id')
@@ -789,7 +765,6 @@ const GestionDocumentosPage = () => {
 
             if (error) throw error;
 
-            // También eliminar del storage si es necesario
             const folderPath = getFolderStoragePath(folder.id);
             if (folderPath) {
                 await supabase.storage
@@ -843,7 +818,6 @@ const GestionDocumentosPage = () => {
 
     const createFolderInStorage = async (folderPath) => {
         try {
-            // Sanitizar cada parte del path
             const sanitizedPath = folderPath
                 .split('/')
                 .map(part => sanitizeFolderName(part))
@@ -861,7 +835,7 @@ const GestionDocumentosPage = () => {
             }
         } catch (error) {
             console.error('Error creating folder in storage:', error);
-            throw error; // Re-lanzar el error para que sea manejado por quien llama
+            throw error;
         }
     };
 
@@ -882,7 +856,6 @@ const GestionDocumentosPage = () => {
         const folder = folders.find(f => f.id === folderId);
         if (!folder) return '';
 
-        // Construir la ruta de forma iterativa y sanitizar cada parte
         const buildPath = (currentFolderId) => {
             const pathParts = [];
             let currentId = currentFolderId;
@@ -904,7 +877,6 @@ const GestionDocumentosPage = () => {
 
     const sanitizeFileName = (fileName) => {
         try {
-            // Separar nombre y extensión
             const lastDotIndex = fileName.lastIndexOf('.');
             let name = fileName;
             let extension = '';
@@ -924,14 +896,12 @@ const GestionDocumentosPage = () => {
                 .replace(/^_+|_+$/g, '') // Eliminar guiones bajos al inicio y final
                 .trim();
 
-            // Asegurar que el nombre no esté vacío
             const finalName = sanitizedName || 'archivo';
             const result = finalName + extension;
 
             return result;
         } catch (error) {
             console.error('Error en sanitizeFileName:', error);
-            // Fallback super seguro
             const timestamp = Date.now();
             const ext = fileName.split('.').pop() || 'txt';
             return `archivo_${timestamp}.${ext}`;
@@ -940,12 +910,10 @@ const GestionDocumentosPage = () => {
 
     const uploadFileToSupabase = async (file, folderId = 'root') => {
         try {
-            // Verificar que el archivo sea válido
             if (!file || !file.name) {
                 throw new Error('Archivo inválido');
             }
 
-            // USAR SANITIZACIÓN ESTRICTA para Supabase Storage
             let fileName = sanitizeFileName(file.name);
 
             if (!fileName || fileName === '.') {
@@ -964,7 +932,6 @@ const GestionDocumentosPage = () => {
             const pathParts = filePath.split('/');
             const folderToCheck = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
 
-            // Verificar si ya existe un archivo con el mismo nombre
             const { data: existingFile, error: listError } = await supabase.storage
                 .from('documents')
                 .list(folderToCheck, {
@@ -973,11 +940,9 @@ const GestionDocumentosPage = () => {
 
             if (listError) {
                 console.warn('Error al verificar archivos existentes:', listError);
-                // Continuar sin verificar duplicados
             }
 
             if (existingFile && existingFile.length > 0) {
-                // Crear nombre único si ya existe
                 const fileExt = fileName.substring(fileName.lastIndexOf('.')) || '';
                 const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
                 fileName = `${nameWithoutExt}_${Date.now()}${fileExt}`;
@@ -990,7 +955,6 @@ const GestionDocumentosPage = () => {
                 }
             }
 
-            // Subir archivo
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('documents')
                 .upload(filePath, file);
@@ -1000,12 +964,10 @@ const GestionDocumentosPage = () => {
                 throw new Error(`Error al subir archivo: ${uploadError.message}`);
             }
 
-            // Obtener URL pública
             const { data: { publicUrl } } = supabase.storage
                 .from('documents')
                 .getPublicUrl(filePath);
 
-            // Preparar datos para la base de datos
             const documentData = {
                 name: file.name,
                 original_name: file.name,
@@ -1023,7 +985,6 @@ const GestionDocumentosPage = () => {
                 updated_at: new Date().toISOString()
             };
 
-            // Guardar en la base de datos
             const { data: documentRecord, error: dbError } = await supabase
                 .from('documents')
                 .insert([documentData])
@@ -1032,7 +993,6 @@ const GestionDocumentosPage = () => {
 
             if (dbError) {
                 console.error('Error en base de datos:', dbError);
-                // Intentar limpiar el archivo subido si falla la DB
                 try {
                     await supabase.storage
                         .from('documents')
@@ -1076,7 +1036,6 @@ const GestionDocumentosPage = () => {
                 throw error;
             }
 
-            // Para el storage, usar nombre sanitizado
             let folderStoragePath = '';
             if (parentId !== 'root') {
                 const parentPath = getFolderStoragePath(parentId);
@@ -1099,7 +1058,6 @@ const GestionDocumentosPage = () => {
 
     const handleDeleteDocument = async (document) => {
         try {
-            // Eliminar archivo del storage
             const { error: storageError } = await supabase.storage
                 .from('documents')
                 .remove([document.file_path]);
@@ -1108,7 +1066,6 @@ const GestionDocumentosPage = () => {
                 console.warn('Error eliminando archivo del storage:', storageError);
             }
 
-            // Eliminar registro de la base de datos
             const { error: dbError } = await supabase
                 .from('documents')
                 .delete()
@@ -1116,7 +1073,6 @@ const GestionDocumentosPage = () => {
 
             if (dbError) throw dbError;
 
-            // Remover de seleccionados si estaba seleccionado
             setSelectedDocuments(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(document.id);
@@ -1162,7 +1118,6 @@ const GestionDocumentosPage = () => {
     useEffect(() => {
         const singlePlant = getSinglePlant();
 
-        // Solo ejecutar si ya tenemos carpetas cargadas y no estamos cargando
         if (!loading && folders.length > 0 && singlePlant) {
             const plantFolder = folders.find(folder =>
                 folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
@@ -1180,14 +1135,11 @@ const GestionDocumentosPage = () => {
     useEffect(() => {
         const initializeData = async () => {
             try {
-                // Cargar carpetas PRIMERO (más rápido)
                 const foldersResult = await loadFoldersFromSupabase(true);
-                setLoading(false); // ⬅️ MOSTRAR UI INMEDIATAMENTE
+                setLoading(false);
 
-                // Cargar documentos en segundo plano
                 loadDocumentsFromSupabase(true);
 
-                // Manejar planta única después
                 const singlePlant = getSinglePlant();
                 if (singlePlant && foldersResult?.length > 0) {
                     const plantFolder = foldersResult.find(folder =>
@@ -1255,11 +1207,9 @@ const GestionDocumentosPage = () => {
             return;
         }
 
-        // Si es solo un archivo, descarga normal
         if (documentsToDownload.length === 1) {
             handleDownload(documentsToDownload[0]);
         } else {
-            // Si son múltiples archivos, crear ZIP
             await downloadAsZip(documentsToDownload);
         }
 
@@ -1268,11 +1218,9 @@ const GestionDocumentosPage = () => {
 
     const downloadAsZip = async (documentsToDownload) => {
         try {
-            // Importar JSZip dinámicamente
             const JSZip = (await import('jszip')).default;
             const zip = new JSZip();
 
-            // Descargar todos los archivos y agregarlos al ZIP
             const downloadPromises = documentsToDownload.map(async (doc) => {
                 try {
                     const response = await fetch(doc.file_url);
@@ -1283,30 +1231,25 @@ const GestionDocumentosPage = () => {
                     zip.file(doc.original_name || doc.name, blob);
                 } catch (error) {
                     console.error(`Error con archivo ${doc.name}:`, error);
-                    // Continuar con otros archivos aunque uno falle
                 }
             });
 
             await Promise.all(downloadPromises);
 
-            // Generar el ZIP
             const zipBlob = await zip.generateAsync({ type: 'blob' });
 
-            // Crear enlace de descarga para el ZIP
             const link = document.createElement('a');
             const url = URL.createObjectURL(zipBlob);
             link.href = url;
 
-            // Nombre del archivo ZIP con fecha
             const now = new Date();
-            const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            const dateStr = now.toISOString().split('T')[0];
             link.download = `documentos_${dateStr}.zip`;
 
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
 
-            // Limpiar URL object
             URL.revokeObjectURL(url);
 
             showNotification(`ZIP descargado con ${documentsToDownload.length} archivo(s)`, 'success');
@@ -1351,7 +1294,6 @@ const GestionDocumentosPage = () => {
     const selectFolder = (folderId) => {
         const singlePlant = getSinglePlant();
 
-        // Si es cliente con una sola planta, no permitir seleccionar root
         if (singlePlant && folderId === 'root') {
             return;
         }
@@ -1364,19 +1306,16 @@ const GestionDocumentosPage = () => {
         });
     };
 
-    // Función helper para verificar si una carpeta es hija de la carpeta de la planta
     const isChildOfPlantFolder = (folder, singlePlant, allFolders) => {
         if (!folder.parent_id || folder.parent_id === 'root') {
             return false;
         }
 
-        // Buscar la carpeta padre
         const parentFolder = allFolders.find(f => f.id === folder.parent_id);
         if (!parentFolder) {
             return false;
         }
 
-        // Verificar si el padre es la carpeta de la planta
         const isParentPlantFolder = (
             parentFolder.name.toLowerCase() === singlePlant.toLowerCase() ||
             (parentFolder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
@@ -1387,7 +1326,6 @@ const GestionDocumentosPage = () => {
             return true;
         }
 
-        // Verificar recursivamente si algún ancestro es la carpeta de la planta
         return isChildOfPlantFolder(parentFolder, singlePlant, allFolders);
     };
 
@@ -1395,14 +1333,25 @@ const GestionDocumentosPage = () => {
         const folderMap = new Map();
         const rootFolders = [];
 
-        // Filtrar carpetas que NO sean root
-        const regularFolders = folders.filter(folder => folder.id !== 'root');
+        let regularFolders = folders.filter(folder => folder.id !== 'root');
 
-        // NUEVO: Filtrar carpetas por planta si el usuario es cliente con una sola planta
+        if (!isAdmin()) {
+            regularFolders = regularFolders.filter(folder => {
+                const isRestrictedFolder = folder.name === '2_1_1_Informes_técnicos' ||
+                    folder.name.includes('2_1_1_Informes_técnicos');
+
+                if (isRestrictedFolder) {
+                    return false;
+                }
+
+                const isChildOfRestricted = isChildOfRestrictedFolder(folder.id, regularFolders);
+                return !isChildOfRestricted;
+            });
+        }
+
         const singlePlant = getSinglePlant();
 
         if (singlePlant) {
-            // Primero, encontrar la carpeta principal de la planta
             const plantMainFolder = regularFolders.find(folder => {
                 const isPlantMainFolder = (
                     folder.name.toLowerCase() === singlePlant.toLowerCase() ||
@@ -1413,21 +1362,18 @@ const GestionDocumentosPage = () => {
             });
 
             if (plantMainFolder) {
-                // Función recursiva para obtener todos los descendientes de la carpeta de la planta
                 const getAllDescendants = (parentId, allFolders) => {
                     const descendants = [];
                     const directChildren = allFolders.filter(f => f.parent_id === parentId);
 
                     for (const child of directChildren) {
                         descendants.push(child);
-                        // Recursivamente agregar todos los descendientes de este hijo
                         descendants.push(...getAllDescendants(child.id, allFolders));
                     }
 
                     return descendants;
                 };
 
-                // Obtener todas las subcarpetas (descendientes) de la carpeta principal de la planta
                 const filteredFolders = getAllDescendants(plantMainFolder.id, regularFolders);
 
                 filteredFolders.forEach(folder => {
@@ -1435,11 +1381,9 @@ const GestionDocumentosPage = () => {
                 });
 
                 filteredFolders.forEach(folder => {
-                    // Si el padre es la carpeta principal de la planta, este será un folder raíz en nuestro árbol
                     if (folder.parent_id === plantMainFolder.id) {
                         rootFolders.push(folderMap.get(folder.id));
                     } else {
-                        // De lo contrario, agregarlo como hijo de su padre
                         const parent = folderMap.get(folder.parent_id);
                         if (parent) {
                             parent.children.push(folderMap.get(folder.id));
@@ -1448,7 +1392,6 @@ const GestionDocumentosPage = () => {
                 });
             }
         } else {
-            // Para admin o usuarios con múltiples plantas, mostrar todo
             regularFolders.forEach(folder => {
                 folderMap.set(folder.id, { ...folder, children: [] });
             });
@@ -1468,14 +1411,27 @@ const GestionDocumentosPage = () => {
         return rootFolders;
     };
 
+    const isChildOfRestrictedFolder = (folderId, allFolders) => {
+        const folder = allFolders.find(f => f.id === folderId);
+        if (!folder || !folder.parent_id) return false;
+
+        const parent = allFolders.find(f => f.id === folder.parent_id);
+        if (!parent) return false;
+
+        if (parent.name === '2_1_1_Informes_técnicos' ||
+            parent.name.includes('2_1_1_Informes_técnicos')) {
+            return true;
+        }
+
+        return isChildOfRestrictedFolder(parent.id, allFolders);
+    };
+
     const getCurrentFolderDocuments = () => {
         const singlePlant = getSinglePlant();
 
         return documents.filter(doc => {
             let matchesFolder = false;
 
-            // Si es cliente con una sola planta y selectedFolder es 'root', 
-            // buscar documentos en la carpeta de la planta
             if (singlePlant && selectedFolder === 'root') {
                 const plantFolder = folders.find(folder =>
                     folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
@@ -1530,7 +1486,6 @@ const GestionDocumentosPage = () => {
         if (files && files.length > 0) {
             await handleFileUpload(files);
         }
-        // Limpiar el input para poder seleccionar los mismos archivos otra vez
         e.target.value = '';
     };
 
@@ -1550,7 +1505,6 @@ const GestionDocumentosPage = () => {
     const breadcrumb = useMemo(() => {
         const singlePlant = getSinglePlant();
 
-        // Si es cliente con una sola planta, mostrar solo el nombre de la planta
         if (singlePlant) {
             if (selectedFolder === 'root') {
                 return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
@@ -1574,7 +1528,6 @@ const GestionDocumentosPage = () => {
             return path.length > 1 ? `${plantName} > ${path.slice(1).join(' > ')}` : plantName;
         }
 
-        // Para admin o usuarios con múltiples plantas
         if (selectedFolder === 'root') return 'PLANTAS';
         const folder = folders.find(f => f.id === selectedFolder);
 
@@ -1595,8 +1548,6 @@ const GestionDocumentosPage = () => {
 
     const handleDownload = async (doc) => {
         try {
-
-            // Fetch del archivo para forzar la descarga
             const response = await fetch(doc.file_url, {
                 method: 'GET',
                 headers: {
@@ -1608,35 +1559,27 @@ const GestionDocumentosPage = () => {
                 throw new Error(`Error al descargar: ${response.status}`);
             }
 
-            // Convertir a blob
             const blob = await response.blob();
 
-            // Crear URL del blob
             const blobUrl = URL.createObjectURL(blob);
 
-            // Crear enlace de descarga
             const link = document.createElement('a');
             link.href = blobUrl;
 
-            // Usar el nombre original o el nombre del documento
             const filename = doc.original_name || doc.name || 'archivo_descargado';
             link.download = filename;
 
-            // Configurar atributos para forzar descarga
             link.style.display = 'none';
             link.target = '_blank';
 
-            // Agregar al DOM, hacer clic y remover
             document.body.appendChild(link);
             link.click();
 
-            // Limpiar después de un momento
             setTimeout(() => {
                 document.body.removeChild(link);
-                URL.revokeObjectURL(blobUrl); // Liberar memoria
+                URL.revokeObjectURL(blobUrl);
             }, 100);
 
-            // Mostrar notificación de éxito
             showNotification(`Archivo "${filename}" descargado correctamente`, 'success');
 
         } catch (error) {
@@ -1659,7 +1602,6 @@ const GestionDocumentosPage = () => {
 
     const folderHierarchy = getFolderHierarchy();
 
-    // AGREGAR antes del return final:
     const renderFolder = (folder, level = 0) => {
         const isExpanded = expandedFolders.has(folder.id);
         const isSelected = selectedFolder === folder.id;
@@ -1840,19 +1782,16 @@ const GestionDocumentosPage = () => {
                         }`}
                     onClick={handleBackgroundClick}
                     onDragOver={(e) => {
-                        // Solo permitir drop en el fondo si no estamos sobre una carpeta específica
                         if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
                             handleDragOver(e, 'root');
                         }
                     }}
                     onDragLeave={(e) => {
-                        // Solo limpiar si realmente salimos del panel completo
                         if (!e.currentTarget.contains(e.relatedTarget)) {
                             setDragOverFolder(null);
                         }
                     }}
                     onDrop={(e) => {
-                        // Solo permitir drop en el fondo si no estamos sobre una carpeta específica
                         if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
                             handleDrop(e, 'root');
                         }
