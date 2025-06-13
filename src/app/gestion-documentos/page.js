@@ -13,7 +13,7 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const GestionDocumentosPage = () => {
-    const { user, isAdmin } = useAuth();
+    const { user, profile, getSinglePlant } = useAuth();
 
     const [documents, setDocuments] = useState([]);
     const [folders, setFolders] = useState([]);
@@ -35,6 +35,10 @@ const GestionDocumentosPage = () => {
     const [creatingNewFolder, setCreatingNewFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const fileInputRef = useRef(null);
+
+    const isAdmin = () => {
+        return profile?.rol === 'admin' || profile?.rol === 'empleado';
+    };
 
     // Sistema de notificaciones
     const showNotification = (message, type = 'success') => {
@@ -103,7 +107,11 @@ const GestionDocumentosPage = () => {
 
     const handleBackgroundClick = (e) => {
         if (e.target === e.currentTarget) {
-            setSelectedFolder('root');
+            const singlePlant = getSinglePlant();
+            // Si es cliente con una sola planta, no permitir volver a root
+            if (!singlePlant) {
+                setSelectedFolder('root');
+            }
         }
     };
 
@@ -124,6 +132,14 @@ const GestionDocumentosPage = () => {
     }, [isUploading, loading, reloadAllData]);
 
     const startCreatingFolder = () => {
+        const singlePlant = getSinglePlant();
+
+        // Si es cliente con una sola planta, no permitir crear carpetas en la raíz
+        if (singlePlant && selectedFolder === 'root') {
+            showNotification('No tienes permisos para crear carpetas en el nivel raíz', 'warning');
+            return;
+        }
+
         setCreatingNewFolder(true);
         setNewFolderName('');
     };
@@ -870,13 +886,47 @@ const GestionDocumentosPage = () => {
     };
 
     useEffect(() => {
+        const singlePlant = getSinglePlant();
+
+        // Solo ejecutar si ya tenemos carpetas cargadas y no estamos cargando
+        if (!loading && folders.length > 0 && singlePlant) {
+            const plantFolder = folders.find(folder =>
+                folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
+                (folder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
+                (folder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
+            );
+
+            if (plantFolder && selectedFolder === 'root') {
+                setSelectedFolder(plantFolder.id);
+                setExpandedFolders(prev => new Set([...prev, plantFolder.id]));
+            }
+        }
+    }, [folders, loading, selectedFolder]);
+
+    useEffect(() => {
         const initializeData = async () => {
             setLoading(true);
             try {
-                await Promise.all([
+                const [foldersResult, documentsResult] = await Promise.all([
                     loadFoldersFromSupabase(true),
                     loadDocumentsFromSupabase(true)
                 ]);
+
+                // Si es cliente con una sola planta, seleccionar automáticamente su carpeta
+                const singlePlant = getSinglePlant();
+                if (singlePlant && foldersResult && foldersResult.length > 0) {
+                    // Buscar la carpeta que corresponde a la planta del usuario
+                    const plantFolder = foldersResult.find(folder =>
+                        folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
+                        (folder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
+                        (folder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
+                    );
+
+                    if (plantFolder) {
+                        setSelectedFolder(plantFolder.id);
+                        setExpandedFolders(new Set([plantFolder.id]));
+                    }
+                }
             } catch (error) {
                 console.error('Error initializing data:', error);
                 showNotification('Error al cargar datos: ' + error.message, 'error');
@@ -885,6 +935,7 @@ const GestionDocumentosPage = () => {
             }
         };
 
+        // Solo ejecutar una vez al montar el componente
         initializeData();
     }, []);
 
@@ -1029,12 +1080,46 @@ const GestionDocumentosPage = () => {
     };
 
     const selectFolder = (folderId) => {
+        const singlePlant = getSinglePlant();
+
+        // Si es cliente con una sola planta, no permitir seleccionar root
+        if (singlePlant && folderId === 'root') {
+            return;
+        }
+
         setSelectedFolder(folderId);
         setExpandedFolders(prev => {
             const newSet = new Set(prev);
             newSet.add(folderId);
             return newSet;
         });
+    };
+
+    // Función helper para verificar si una carpeta es hija de la carpeta de la planta
+    const isChildOfPlantFolder = (folder, singlePlant, allFolders) => {
+        if (!folder.parent_id || folder.parent_id === 'root') {
+            return false;
+        }
+
+        // Buscar la carpeta padre
+        const parentFolder = allFolders.find(f => f.id === folder.parent_id);
+        if (!parentFolder) {
+            return false;
+        }
+
+        // Verificar si el padre es la carpeta de la planta
+        const isParentPlantFolder = (
+            parentFolder.name.toLowerCase() === singlePlant.toLowerCase() ||
+            (parentFolder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
+            (parentFolder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
+        );
+
+        if (isParentPlantFolder) {
+            return true;
+        }
+
+        // Verificar recursivamente si algún ancestro es la carpeta de la planta
+        return isChildOfPlantFolder(parentFolder, singlePlant, allFolders);
     };
 
     const getFolderHierarchy = () => {
@@ -1044,29 +1129,92 @@ const GestionDocumentosPage = () => {
         // Filtrar carpetas que NO sean root
         const regularFolders = folders.filter(folder => folder.id !== 'root');
 
-        regularFolders.forEach(folder => {
-            folderMap.set(folder.id, { ...folder, children: [] });
-        });
+        // NUEVO: Filtrar carpetas por planta si el usuario es cliente con una sola planta
+        const singlePlant = getSinglePlant();
 
-        regularFolders.forEach(folder => {
-            if (folder.parent_id === null || folder.parent_id === 'root') {
-                rootFolders.push(folderMap.get(folder.id));
-            } else {
-                const parent = folderMap.get(folder.parent_id);
-                if (parent) {
-                    parent.children.push(folderMap.get(folder.id));
-                }
+        if (singlePlant) {
+            // Primero, encontrar la carpeta principal de la planta
+            const plantMainFolder = regularFolders.find(folder => {
+                const isPlantMainFolder = (
+                    folder.name.toLowerCase() === singlePlant.toLowerCase() ||
+                    (folder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
+                    (folder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
+                );
+                return isPlantMainFolder && (folder.parent_id === null || folder.parent_id === 'root');
+            });
+
+            if (plantMainFolder) {
+                // Función recursiva para obtener todos los descendientes de la carpeta de la planta
+                const getAllDescendants = (parentId, allFolders) => {
+                    const descendants = [];
+                    const directChildren = allFolders.filter(f => f.parent_id === parentId);
+
+                    for (const child of directChildren) {
+                        descendants.push(child);
+                        // Recursivamente agregar todos los descendientes de este hijo
+                        descendants.push(...getAllDescendants(child.id, allFolders));
+                    }
+
+                    return descendants;
+                };
+
+                // Obtener todas las subcarpetas (descendientes) de la carpeta principal de la planta
+                const filteredFolders = getAllDescendants(plantMainFolder.id, regularFolders);
+
+                filteredFolders.forEach(folder => {
+                    folderMap.set(folder.id, { ...folder, children: [] });
+                });
+
+                filteredFolders.forEach(folder => {
+                    // Si el padre es la carpeta principal de la planta, este será un folder raíz en nuestro árbol
+                    if (folder.parent_id === plantMainFolder.id) {
+                        rootFolders.push(folderMap.get(folder.id));
+                    } else {
+                        // De lo contrario, agregarlo como hijo de su padre
+                        const parent = folderMap.get(folder.parent_id);
+                        if (parent) {
+                            parent.children.push(folderMap.get(folder.id));
+                        }
+                    }
+                });
             }
-        });
+        } else {
+            // Para admin o usuarios con múltiples plantas, mostrar todo
+            regularFolders.forEach(folder => {
+                folderMap.set(folder.id, { ...folder, children: [] });
+            });
+
+            regularFolders.forEach(folder => {
+                if (folder.parent_id === null || folder.parent_id === 'root') {
+                    rootFolders.push(folderMap.get(folder.id));
+                } else {
+                    const parent = folderMap.get(folder.parent_id);
+                    if (parent) {
+                        parent.children.push(folderMap.get(folder.id));
+                    }
+                }
+            });
+        }
 
         return rootFolders;
     };
 
     const getCurrentFolderDocuments = () => {
+        const singlePlant = getSinglePlant();
+
         return documents.filter(doc => {
             let matchesFolder = false;
 
-            if (selectedFolder === 'root') {
+            // Si es cliente con una sola planta y selectedFolder es 'root', 
+            // buscar documentos en la carpeta de la planta
+            if (singlePlant && selectedFolder === 'root') {
+                const plantFolder = folders.find(folder =>
+                    folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
+                    (folder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
+                    (folder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
+                );
+                matchesFolder = plantFolder ? doc.folder_id === plantFolder.id : false;
+            } else if (selectedFolder === 'root') {
                 matchesFolder = doc.folder_id === 'root' || doc.folder_id === null;
             } else {
                 matchesFolder = doc.folder_id === selectedFolder;
@@ -1192,44 +1340,46 @@ const GestionDocumentosPage = () => {
                                 {folder.name}
                             </span>
 
-                            {/* Menú de tres puntos que aparece en hover */}
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id);
-                                    }}
-                                    className="p-1 hover:bg-gray-200 rounded transition-colors cursor-pointer"
-                                >
-                                    <MoreVertical size={14} className="text-gray-500" />
-                                </button>
+                            {/* Menú de tres puntos que aparece en hover - Solo para admin */}
+                            {isAdmin() && (
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id);
+                                        }}
+                                        className="p-1 hover:bg-gray-200 rounded transition-colors cursor-pointer"
+                                    >
+                                        <MoreVertical size={14} className="text-gray-500" />
+                                    </button>
 
-                                {/* Menú contextual */}
-                                {showFolderMenu === folder.id && (
-                                    <div className="absolute right-2 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[120px]">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                startEditingFolder(folder);
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
-                                        >
-                                            <Pencil size={14} />
-                                            Renombrar
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                confirmDeleteFolder(folder);
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
-                                        >
-                                            <Trash2 size={14} />
-                                            Eliminar
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                                    {/* Menú contextual */}
+                                    {showFolderMenu === folder.id && (
+                                        <div className="absolute right-2 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[120px]">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    startEditingFolder(folder);
+                                                }}
+                                                className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                                            >
+                                                <Pencil size={14} />
+                                                Renombrar
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    confirmDeleteFolder(folder);
+                                                }}
+                                                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                                            >
+                                                <Trash2 size={14} />
+                                                Eliminar
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
@@ -1269,6 +1419,33 @@ const GestionDocumentosPage = () => {
     }, [showFolderMenu]);
 
     const getBreadcrumb = (folderId) => {
+        const singlePlant = getSinglePlant();
+
+        // Si es cliente con una sola planta, mostrar solo el nombre de la planta
+        if (singlePlant) {
+            if (folderId === 'root') {
+                return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+            }
+
+            const folder = folders.find(f => f.id === folderId);
+            if (!folder) return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+
+            const buildPath = (currentFolder) => {
+                if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
+                    return currentFolder ? [currentFolder.name] : [];
+                }
+
+                const parent = folders.find(f => f.id === currentFolder.parent_id);
+                return [...buildPath(parent), currentFolder.name];
+            };
+
+            const path = buildPath(folder);
+            const plantName = singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+
+            return path.length > 1 ? `${plantName} > ${path.slice(1).join(' > ')}` : plantName;
+        }
+
+        // Para admin o usuarios con múltiples plantas
         if (folderId === 'root') return 'PLANTAS';
 
         const folder = folders.find(f => f.id === folderId);
@@ -1392,16 +1569,24 @@ const GestionDocumentosPage = () => {
                         <div className="flex items-center justify-between mb-4">
                             <div className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                                 <Folder size={16} className="text-yellow-600" />
-                                {folders.find(f => f.id === 'root')?.name || 'PLANTAS'}
+                                {(() => {
+                                    const singlePlant = getSinglePlant();
+                                    if (singlePlant) {
+                                        return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+                                    }
+                                    return folders.find(f => f.id === 'root')?.name || 'PLANTAS';
+                                })()}
                             </div>
-                            <button
-                                onClick={startCreatingFolder}
-                                disabled={creatingNewFolder}
-                                className="p-1.5 text-gray-500 hover:text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer disabled:opacity-50"
-                                title="Crear nueva carpeta"
-                            >
-                                <Plus size={16} />
-                            </button>
+                            {isAdmin() && (
+                                <button
+                                    onClick={startCreatingFolder}
+                                    disabled={creatingNewFolder}
+                                    className="p-1.5 text-gray-500 hover:text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                                    title="Crear nueva carpeta"
+                                >
+                                    <Plus size={16} />
+                                </button>
+                            )}
                         </div>
                         <div className="space-y-1">
                             {folderHierarchy.map(folder => (
@@ -1503,14 +1688,17 @@ const GestionDocumentosPage = () => {
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                                 <tr>
-                                    <th className="text-left p-3 font-medium text-gray-700 text-sm w-12">
-                                        <input
-                                            type="checkbox"
-                                            checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
-                                            onChange={(e) => handleSelectAll(e.target.checked)}
-                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                        />
-                                    </th>
+                                    {/* Solo mostrar checkbox si es admin */}
+                                    {isAdmin() && (
+                                        <th className="text-left p-3 font-medium text-gray-700 text-sm w-12">
+                                            <input
+                                                type="checkbox"
+                                                checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
+                                                onChange={(e) => handleSelectAll(e.target.checked)}
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="text-left p-3 font-medium text-gray-700 text-sm">Nombre</th>
                                     <th className="text-left p-3 font-medium text-gray-700 text-sm">Tamaño</th>
                                     <th className="text-center p-3 font-medium text-gray-700 text-sm">Fecha de modificación</th>
@@ -1520,14 +1708,17 @@ const GestionDocumentosPage = () => {
                             <tbody>
                                 {sortedDocuments.map(document => (
                                     <tr key={document.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                        <td className="p-3">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedDocuments.has(document.id)}
-                                                onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
-                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                            />
-                                        </td>
+                                        {/* Solo mostrar checkbox si es admin */}
+                                        {isAdmin() && (
+                                            <td className="p-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedDocuments.has(document.id)}
+                                                    onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
+                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                />
+                                            </td>
+                                        )}
                                         <td className="p-3">
                                             <div className="flex items-center gap-3">
                                                 <FileText className="text-blue-500 flex-shrink-0" size={20} />
@@ -1566,6 +1757,7 @@ const GestionDocumentosPage = () => {
                                         </td>
                                         <td className="p-3">
                                             <div className="flex items-center justify-center gap-1">
+                                                {/* Botón descargar - SIEMPRE visible */}
                                                 <button
                                                     onClick={() => handleDownload(document)}
                                                     className="p-2 text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer"
@@ -1573,13 +1765,16 @@ const GestionDocumentosPage = () => {
                                                 >
                                                     <Download size={14} />
                                                 </button>
-                                                <button
-                                                    onClick={() => confirmDeleteDocument(document)}
-                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                                                    title="Eliminar"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
+                                                {/* Botón eliminar - SOLO para admin */}
+                                                {isAdmin() && (
+                                                    <button
+                                                        onClick={() => confirmDeleteDocument(document)}
+                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                                                        title="Eliminar"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -1604,8 +1799,8 @@ const GestionDocumentosPage = () => {
 
             {/* Botones flotantes */}
             <div className="fixed bottom-6 right-6 flex gap-3 z-40">
-                {/* Botón de descargar - a la izquierda */}
-                {selectedDocuments.size > 0 && (
+                {/* Botón de descargar - Solo si es admin Y hay archivos seleccionados */}
+                {isAdmin() && selectedDocuments.size > 0 && (
                     <button
                         onClick={downloadSelectedDocuments}
                         className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-200 hover:scale-105 cursor-pointer"
@@ -1618,21 +1813,23 @@ const GestionDocumentosPage = () => {
                     </button>
                 )}
 
-                {/* Botón de subir - a la derecha */}
-                <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-200 hover:scale-105 disabled:opacity-50 cursor-pointer"
-                    title="Subir archivos"
-                >
-                    <Upload size={20} />
-                    <span className="hidden sm:block">
-                        {isUploading ? 'Subiendo...' : 'Subir'}
-                    </span>
-                    {isUploading && (
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    )}
-                </button>
+                {/* Botón de subir - Solo si es admin */}
+                {isAdmin() && (
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-200 hover:scale-105 disabled:opacity-50 cursor-pointer"
+                        title="Subir archivos"
+                    >
+                        <Upload size={20} />
+                        <span className="hidden sm:block">
+                            {isUploading ? 'Subiendo...' : 'Subir'}
+                        </span>
+                        {isUploading && (
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        )}
+                    </button>
+                )}
             </div>
 
             {/* Input file oculto */}
