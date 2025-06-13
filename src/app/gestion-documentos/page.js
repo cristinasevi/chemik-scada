@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search, Move,
-    Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
+    Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { createClient } from '@supabase/supabase-js';
@@ -1490,8 +1490,7 @@ const GestionDocumentosPage = () => {
 
             const matchesSearch = searchTerm === '' ||
                 doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                doc.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (doc.tags && doc.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())));
+                doc.description.toLowerCase().includes(searchTerm.toLowerCase());
 
             return matchesFolder && matchesSearch;
         });
@@ -2034,21 +2033,6 @@ const GestionDocumentosPage = () => {
                                                             {document.original_name || document.name}
                                                         </span>
                                                     </div>
-                                                    {document.tags && document.tags.length > 0 && (
-                                                        <div className="flex gap-1 mt-1">
-                                                            {document.tags.slice(0, 3).map(tag => (
-                                                                <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-                                                                    <Tag size={8} />
-                                                                    {tag}
-                                                                </span>
-                                                            ))}
-                                                            {document.tags.length > 3 && (
-                                                                <span className="text-xs text-gray-400">
-                                                                    +{document.tags.length - 3} más
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </div>
                                         </td>
