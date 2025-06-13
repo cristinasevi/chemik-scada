@@ -25,7 +25,6 @@ const ExportacionVariablesPage = () => {
   const [reloadQueue, setReloadQueue] = useState(new Set());
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Cache para evitar llamadas repetidas
   const [bucketCache, setBucketCache] = useState(new Map());
 
   const searchParams = useSearchParams();
@@ -60,7 +59,6 @@ const ExportacionVariablesPage = () => {
     if (plantaParam) {
       setSelectedPlant(plantaParam);
 
-      // Si viene desde una planta específica, agregar automáticamente el filtro
       const plantFilter = {
         id: Date.now(),
         key: 'PVO_Plant',
@@ -74,12 +72,10 @@ const ExportacionVariablesPage = () => {
       };
 
       setFilters(prevFilters => {
-        // Solo agregar si no existe ya un filtro de planta
         const hasPlantFilter = prevFilters.some(f => f.key === 'PVO_Plant');
         if (!hasPlantFilter) {
           const newFilters = [plantFilter, ...prevFilters.filter(f => f.key !== '')];
 
-          // Recargar los valores disponibles de otros filtros después de agregar planta
           setTimeout(() => {
             newFilters.forEach(filter => {
               if (filter.key && filter.key !== 'PVO_Plant' && !['_time', '_value'].includes(filter.key)) {
@@ -103,21 +99,17 @@ const ExportacionVariablesPage = () => {
     return `${day}/${month}/${year}`;
   };
 
-  // Load initial data
   useEffect(() => {
     loadAggregationFunctions();
     loadWindowPeriods();
-    // Cargar PV automáticamente sin timeRanges
     setTimeout(() => {
       loadBucketData();
     }, 100);
   }, []);
 
-  // Update raw query when selections change
   useEffect(() => {
     if (!useCustomQuery) {
       buildFluxQuery();
-      // Marcar que hay cambios pendientes si ya había un resultado previo
       if (queryResult) {
         setHasChanges(true);
       }
@@ -133,7 +125,6 @@ const ExportacionVariablesPage = () => {
     const { selectedDates } = timeRange;
 
     if (selectedDates.length === 0) {
-      // Primera fecha seleccionada
       const startTime = timeRange.startTime || '00:00';
       const endTime = timeRange.endTime || '23:59';
       const startIso = `${date}T${startTime}:00Z`;
@@ -169,7 +160,6 @@ const ExportacionVariablesPage = () => {
         endTime: endTime
       });
     } else {
-      // Reset y seleccionar nueva fecha
       const startTime = '00:00';
       const endTime = '23:59';
       const startIso = `${date}T${startTime}:00Z`;
@@ -188,17 +178,14 @@ const ExportacionVariablesPage = () => {
     }
   };
 
-  // Función para construir filtros aplicados para consultas dependientes
   const buildAppliedFilters = useCallback((excludeFilterId = null) => {
     const appliedFilters = [];
 
     filters.forEach(filter => {
-      // Excluir el filtro actual y filtros vacíos
       if (filter.id === excludeFilterId || !filter.key || filter.selectedValues.length === 0) {
         return;
       }
 
-      // Solo procesar filtros con valores seleccionados
       if (filter.key !== '_time' && filter.key !== '_value') {
         appliedFilters.push({
           key: filter.key,
@@ -265,7 +252,6 @@ const ExportacionVariablesPage = () => {
   };
 
   const loadBucketData = async () => {
-    // Verificar cache primero - cache separado por bucket
     if (bucketCache.has(selectedBucket)) {
       const cachedData = bucketCache.get(selectedBucket);
       setMeasurements(cachedData.measurements);
@@ -277,7 +263,6 @@ const ExportacionVariablesPage = () => {
     setLoadingStates(prev => ({ ...prev, bucketData: true }));
 
     try {
-      // Usar la API rápida para obtener filtros específicos de este bucket
       const fastResponse = await fetch('/api/influxdb/fast-filters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -289,7 +274,6 @@ const ExportacionVariablesPage = () => {
       if (fastData.success && fastData.filters) {
         const { filters } = fastData;
 
-        // Procesar datos específicos de este bucket
         const bucketSpecificData = {
           measurements: filters.measurements || [],
           fields: filters.fieldNames || [],
@@ -299,10 +283,8 @@ const ExportacionVariablesPage = () => {
           ] || []
         };
 
-        // Cache específico por bucket
         setBucketCache(prev => new Map(prev).set(selectedBucket, bucketSpecificData));
 
-        // Actualizar estado con datos específicos del bucket
         setMeasurements(bucketSpecificData.measurements);
         setFields(bucketSpecificData.fields);
         setAvailableTagKeys(bucketSpecificData.availableTagKeys);
@@ -312,7 +294,6 @@ const ExportacionVariablesPage = () => {
       }
 
     } catch (error) {
-      // Si falla, limpiar todo - específico del bucket
       setMeasurements([]);
       setFields([]);
       setAvailableTagKeys([]);
@@ -342,21 +323,17 @@ const ExportacionVariablesPage = () => {
       return false;
     }
 
-    // No recargar si ya está cargando
     if (filter.loading) {
       return false;
     }
 
-    // No recargar si ya tiene valores y no hay cambios en filtros anteriores
     const currentFilterIndex = filters.findIndex(f => f.id === filterId);
     const previousFilters = filters.slice(0, currentFilterIndex);
 
-    // Si no hay filtros anteriores con valores, no necesita recarga
     const hasActivePreviousFilters = previousFilters.some(f =>
       f.key && f.selectedValues.length > 0 && !['_time', '_value'].includes(f.key)
     );
 
-    // Si tiene valores y no hay filtros anteriores activos, no recargar
     if (filter.availableValues.length > 0 && !hasActivePreviousFilters) {
       return false;
     }
@@ -365,8 +342,10 @@ const ExportacionVariablesPage = () => {
   }, [filters]);
 
   const reloadFilterValues = useCallback(async (filterId) => {
-    const currentFilters = filters; // Usar snapshot actual
+    const currentFilters = filters;
     const filter = currentFilters.find(f => f.id === filterId);
+
+    if (reloadQueue.has(filterId)) return;
 
     if (!shouldReloadFilter(filterId)) {
       return;
@@ -376,12 +355,10 @@ const ExportacionVariablesPage = () => {
       return;
     }
 
-    // Evitar recargas duplicadas
     if (filter.loading) {
       return;
     }
 
-    // Marcar como cargando
     setFilters(prevFilters =>
       prevFilters.map(f =>
         f.id === filterId ? { ...f, loading: true } : f
@@ -391,7 +368,6 @@ const ExportacionVariablesPage = () => {
     try {
       let availableValues = [];
 
-      // OBTENER FILTROS ANTERIORES APLICADOS usando snapshot actual
       const currentFilterIndex = currentFilters.findIndex(f => f.id === filterId);
       const previousFilters = currentFilters.slice(0, currentFilterIndex)
         .filter(filter => filter.key && filter.selectedValues.length > 0 &&
@@ -401,7 +377,6 @@ const ExportacionVariablesPage = () => {
         if (filter.key === '_measurement') {
           availableValues = measurements;
         } else if (filter.key === '_field') {
-          // APLICAR FILTRO POR TYPE AQUÍ TAMBIÉN
           availableValues = await getFilteredFieldsByType();
 
         } else if (filter.key === 'PVO_Plant') {
@@ -424,7 +399,6 @@ const ExportacionVariablesPage = () => {
           }
         }
       } else {
-        // Construir query optimizada
         let baseQuery = `from(bucket: "${selectedBucket}")
           |> range(start: -2h)`;
 
@@ -443,7 +417,6 @@ const ExportacionVariablesPage = () => {
           }
         });
 
-        // Si el filtro actual es '_field', agregar filtro por type
         if (filter.key === '_field') {
           baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
         }
@@ -485,7 +458,6 @@ const ExportacionVariablesPage = () => {
             }
           }
         } else {
-          // Fallback optimizado
           if (filter.key === '_field') {
             availableValues = await getFilteredFieldsByType(previousFilters);
           } else if (filter.key === 'PVO_Plant') {
@@ -514,7 +486,6 @@ const ExportacionVariablesPage = () => {
         }
       }
 
-      // Actualizar solo si el filtro aún existe y no se ha modificado
       setFilters(prevFilters =>
         prevFilters.map(f =>
           f.id === filterId
@@ -544,12 +515,10 @@ const ExportacionVariablesPage = () => {
       const removedIndex = prev.findIndex(f => f.id === filterId);
       const newFilters = prev.filter(filter => filter.id !== filterId);
 
-      // Solo recargar si el filtro eliminado realmente afectaba a otros
       if (filterToRemove?.selectedValues?.length > 0 &&
         !['_time', '_value'].includes(filterToRemove.key) &&
         removedIndex < newFilters.length) {
 
-        // Solo recargar el PRIMER filtro posterior
         const nextFilter = newFilters
           .slice(removedIndex)
           .find(f => f.key && !['_time', '_value'].includes(f.key));
@@ -557,7 +526,7 @@ const ExportacionVariablesPage = () => {
         if (nextFilter) {
           setTimeout(() => {
             reloadFilterValues(nextFilter.id);
-          }, 200);
+          }, 100);
         }
       }
 
@@ -570,14 +539,13 @@ const ExportacionVariablesPage = () => {
 
     setFilters(prevFilters =>
       prevFilters.map((filter, index) => {
-        // Limpiar solo los filtros posteriores que tienen valores seleccionados
         if (index > currentFilterIndex &&
           filter.selectedValues.length > 0 &&
           !['_time', '_value'].includes(filter.key)) {
           return {
             ...filter,
             selectedValues: [],
-            availableValues: [] // También limpiar valores disponibles
+            availableValues: []
           };
         }
         return filter;
@@ -610,21 +578,17 @@ const ExportacionVariablesPage = () => {
       try {
         let availableValues = [];
 
-        // OBTENER FILTROS ANTERIORES APLICADOS
         const currentFilterIndex = filters.findIndex(f => f.id === filterId);
         const previousFilters = filters.slice(0, currentFilterIndex)
           .filter(filter => filter.key && filter.selectedValues.length > 0 &&
             filter.key !== '_time' && filter.key !== '_value');
 
-        // Si no hay filtros anteriores, usar datos base
         if (previousFilters.length === 0) {
           if (key === '_measurement') {
             availableValues = measurements;
           } else if (key === '_field') {
-            // AQUÍ ES DONDE FILTRAMOS POR TYPE
             availableValues = await getFilteredFieldsByType();
           } else {
-            // Para otros campos sin filtros previos, usar la API universal
             const response = await fetch('/api/influxdb/universal-values', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -642,7 +606,6 @@ const ExportacionVariablesPage = () => {
             }
           }
         } else {
-          // Si hay filtros anteriores, construir query optimizada
           let baseQuery = `from(bucket: "${selectedBucket}")
             |> range(start: -1h)`;
 
@@ -653,7 +616,6 @@ const ExportacionVariablesPage = () => {
                 : `r["${prevFilter.key}"]`;
               baseQuery += `\n  |> filter(fn: (r) => ${fieldRef} == "${prevFilter.selectedValues[0]}")`;
             } else if (prevFilter.selectedValues.length > 1) {
-              // CAMBIO: Solo usar el primer valor seleccionado para acelerar
               const fieldRef = prevFilter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prevFilter.key)
                 ? `r.${prevFilter.key}`
                 : `r["${prevFilter.key}"]`;
@@ -661,15 +623,11 @@ const ExportacionVariablesPage = () => {
             }
           });
 
-          // Si el filtro actual es '_field', necesitamos filtrar por type también
           if (key === '_field') {
-            // Agregar filtro para excluir type "calculado" y mostrar solo "holding_register"
             baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
-            // OPTIMIZACIÓN: Muestrear muy pocos registros
             baseQuery += `\n  |> sample(n: 1000)`;
           }
 
-          // Obtener valores únicos del campo actual
           const fieldRef = key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
             ? `r.${key}`
             : `r["${key}"]`;
@@ -681,7 +639,6 @@ const ExportacionVariablesPage = () => {
           |> sort(columns: ["${key}"])
           |> yield(name: "distinct_values")`;
 
-          // Ejecutar la query a través de tu API
           const response = await fetch('/api/influxdb/query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -694,7 +651,6 @@ const ExportacionVariablesPage = () => {
           const data = await response.json();
 
           if (data.data && typeof data.rows === 'number') {
-            // Parsear el CSV resultado
             const lines = data.data.split('\n').filter(line => line.trim());
 
             if (lines.length > 1) {
@@ -715,9 +671,7 @@ const ExportacionVariablesPage = () => {
           } else {
             console.error('Query failed or returned no data. Response:', data);
 
-            // Fallback: usar API universal con filtros aplicados
             if (key === '_field') {
-              // Para _field, usar función especial que filtra por type
               availableValues = await getFilteredFieldsByType(previousFilters);
             } else {
               const fallbackResponse = await fetch('/api/influxdb/universal-values', {
@@ -743,7 +697,6 @@ const ExportacionVariablesPage = () => {
           }
         }
 
-        // Actualizar el filtro con los valores obtenidos
         setFilters(prevFilters =>
           prevFilters.map(filter =>
             filter.id === filterId
@@ -767,11 +720,9 @@ const ExportacionVariablesPage = () => {
 
   const getFilteredFieldsByType = async (appliedFilters = []) => {
     try {
-      // Construir query base
       let baseQuery = `from(bucket: "${selectedBucket}")
       |> range(start: -24h)`;
 
-      // Aplicar filtros previos si existen
       appliedFilters.forEach(filter => {
         if (filter.selectedValues.length === 1) {
           const fieldRef = filter.key.startsWith('_') || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(filter.key)
@@ -787,10 +738,8 @@ const ExportacionVariablesPage = () => {
         }
       });
 
-      // Agregar filtro para type = "holding_register"
       baseQuery += `\n  |> filter(fn: (r) => r.type == "holding_register")`;
 
-      // Obtener valores únicos de _field
       const distinctQuery = `${baseQuery}
       |> keep(columns: ["_field"])
       |> distinct(column: "_field")
@@ -829,7 +778,6 @@ const ExportacionVariablesPage = () => {
         }
       }
 
-      // Si la query falla, fallback a una llamada API específica
       const fallbackResponse = await fetch('/api/influxdb/filtered-fields', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -858,12 +806,11 @@ const ExportacionVariablesPage = () => {
     const currentFilter = filters.find(f => f.id === filterId);
     if (!currentFilter) return;
 
-    // Verificar si realmente cambió la selección
     const currentValues = currentFilter.selectedValues.sort();
     const newValues = values.sort();
 
     if (JSON.stringify(currentValues) === JSON.stringify(newValues)) {
-      return; // No hay cambios reales, no hacer nada
+      return;
     }
 
     setFilters(prevFilters =>
@@ -874,17 +821,14 @@ const ExportacionVariablesPage = () => {
       )
     );
 
-    // Solo recargar si hay cambios significativos y solo los filtros que realmente dependen
     if (values.length > 0 || currentFilter.selectedValues.length > 0) {
       const currentFilterIndex = filters.findIndex(f => f.id === filterId);
 
-      // Solo recargar el PRIMER filtro posterior que tenga una key válida
       const nextFilter = filters
         .slice(currentFilterIndex + 1)
         .find(f => f.key && !['_time', '_value'].includes(f.key));
 
       if (nextFilter) {
-        // Usar un timeout más largo para evitar recargas múltiples
         setTimeout(() => {
           reloadFilterValues(nextFilter.id);
         }, 300);
@@ -896,7 +840,6 @@ const ExportacionVariablesPage = () => {
     const currentFilter = filters.find(f => f.id === filterId);
     if (!currentFilter) return;
 
-    // Actualizar inmediatamente el estado visual
     const newValues = isChecked
       ? [...currentFilter.selectedValues, value]
       : currentFilter.selectedValues.filter(v => v !== value);
@@ -910,16 +853,14 @@ const ExportacionVariablesPage = () => {
       })
     );
 
-    // Usar debounce más agresivo para cambios de checkbox
     const currentFilterIndex = filters.findIndex(f => f.id === filterId);
 
-    // Solo marcar el PRIMER filtro posterior para recarga
     const nextFilterId = filters
       .slice(currentFilterIndex + 1)
       .find(f => f.key && !['_time', '_value'].includes(f.key))?.id;
 
     if (nextFilterId) {
-      setReloadQueue(prev => new Set([nextFilterId])); // Solo uno en la cola
+      setReloadQueue(prev => new Set([nextFilterId]));
     }
   }, [filters]);
 
@@ -927,16 +868,14 @@ const ExportacionVariablesPage = () => {
     if (reloadQueue.size === 0) return;
 
     const timeoutId = setTimeout(() => {
-      // Procesar solo el primer filtro de la cola
       const filterToReload = Array.from(reloadQueue)[0];
 
       if (filterToReload) {
         reloadFilterValues(filterToReload);
       }
 
-      // Limpiar la cola
       setReloadQueue(new Set());
-    }, 400); // Aumentar el debounce a 400ms
+    }, 200);
 
     return () => clearTimeout(timeoutId);
   }, [reloadQueue, reloadFilterValues]);
@@ -976,10 +915,8 @@ const ExportacionVariablesPage = () => {
 
     query += `  |> range(start: ${startTime}, stop: ${formattedStop})\n`;
 
-    // Solo incluir variables de type "holding_register"
     query += `  |> filter(fn: (r) => r.type == "holding_register")\n`;
 
-    // Add filters
     filters.forEach(filter => {
       if (!filter.key) return;
 
@@ -990,7 +927,6 @@ const ExportacionVariablesPage = () => {
           const start = filter.timeStart ? `time(v: "${new Date(filter.timeStart).toISOString()}")` : startTime;
           const stop = filter.timeEnd ? `time(v: "${new Date(filter.timeEnd).toISOString()}")` : formattedStop;
 
-          // Solo agregar filtro de tiempo adicional si es diferente del rango principal
           if (filter.timeStart || filter.timeEnd) {
             query += `  |> filter(fn: (r) => r._time >= ${start}`;
             if (filter.timeEnd) {
@@ -1026,12 +962,10 @@ const ExportacionVariablesPage = () => {
       }
     });
 
-    // Aplicar agregación si se especifica (esto reduce naturalmente el volumen de datos)
     if (windowPeriod !== 'auto' && aggregateFunction !== 'none') {
       query += `  |> aggregateWindow(every: ${windowPeriod}, fn: ${aggregateFunction}, createEmpty: false)\n`;
     }
 
-    // Limitar registros para acelerar la query - ajustar según rango de tiempo
     const isLongTimeRange = (() => {
       if (!timeRange.start || timeRange.start === '-30m') return false;
 
@@ -1039,7 +973,7 @@ const ExportacionVariablesPage = () => {
         const start = new Date(timeRange.selectedDates[0]);
         const end = new Date(timeRange.selectedDates[1]);
         const diffHours = (end - start) / (1000 * 60 * 60);
-        return diffHours > 6; // Más de 6 horas se considera rango largo
+        return diffHours > 6;
       }
       return false;
     })();
@@ -1055,7 +989,7 @@ const ExportacionVariablesPage = () => {
     setRawQuery(query);
   }, [selectedBucket, filters, timeRange, windowPeriod, aggregateFunction]);
 
-  const executeQuery = async () => {
+  const executeQuery = useCallback(async () => {
     const queryToExecute = useCustomQuery ? customQuery : rawQuery;
 
     if (!queryToExecute || queryToExecute.includes('// Select a bucket')) {
@@ -1087,7 +1021,6 @@ const ExportacionVariablesPage = () => {
           success: true,
           queryId: Date.now()
         });
-        // Resetear el estado de cambios cuando la consulta es exitosa
         setHasChanges(false);
       } else {
         setQueryResult({
@@ -1099,7 +1032,6 @@ const ExportacionVariablesPage = () => {
           success: false,
           queryId: Date.now()
         });
-        // También resetear cambios en caso de error
         setHasChanges(false);
       }
     } catch (error) {
@@ -1116,26 +1048,21 @@ const ExportacionVariablesPage = () => {
       setHasChanges(false);
     }
     setLoadingStates(prev => ({ ...prev, executing: false }));
-  };
-
+  }, [useCustomQuery, customQuery, rawQuery]);
 
   const exportData = (format) => {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
 
-    // Construir nombre del archivo con bucket y filtros
     let fileName = selectedBucket || 'PV';
 
-    // Agregar filtros seleccionados al nombre
     const activeFilters = filters.filter(filter => filter.key && filter.selectedValues.length > 0);
 
     if (activeFilters.length > 0) {
       const filterNames = activeFilters.map(filter => {
-        // Si solo hay un valor, usar solo ese valor (sin etiqueta)
         if (filter.selectedValues.length === 1) {
           return filter.selectedValues[0];
         } else {
-          // Si hay múltiples valores, usar el nombre del filtro y cantidad
           const friendlyNames = {
             'PVO_Plant': 'Planta',
             'PVO_Zone': 'Zona',
@@ -1151,10 +1078,8 @@ const ExportacionVariablesPage = () => {
       fileName += '_' + filterNames.join('_');
     }
 
-    // Agregar fecha
     fileName += `_${dateStr}`;
 
-    // Limpiar caracteres especiales del nombre del archivo
     fileName = fileName.replace(/[^a-zA-Z0-9_-]/g, '_');
 
     if (!queryResult || !queryResult.data) {
@@ -1163,24 +1088,20 @@ const ExportacionVariablesPage = () => {
     }
 
     if (format === 'csv') {
-      // Estructura optimizada: tiempo + INV1_Pca + INV1_PF + INV2_Pca + INV2_PF + etc.
       const lines = queryResult.data.split('\n').filter(line => line.trim());
       if (lines.length > 1) {
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
 
-        // Encontrar índices de las columnas necesarias
         const fieldIndex = headers.indexOf('_field');
         const timeIndex = headers.indexOf('_time');
         const valueIndex = headers.indexOf('_value');
         const idIndex = headers.indexOf('PVO_id');
 
-        // Verificar que existan las columnas
         if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
           alert('Las columnas requeridas (_field, _time, _value) no están disponibles en los datos.');
           return;
         }
 
-        // Recopilar datos organizados
         const dataPoints = [];
         const uniqueIds = new Set();
         const uniqueFields = new Set();
@@ -1188,7 +1109,6 @@ const ExportacionVariablesPage = () => {
         lines.slice(1).forEach(line => {
           const cells = line.split(',').map(cell => cell.replace(/"/g, '').trim());
           if (cells.length > Math.max(fieldIndex, timeIndex, valueIndex, idIndex !== -1 ? idIndex : 0)) {
-            // AÑADIR ESTAS LÍNEAS:
             const plantIndex = headers.indexOf('PVO_Plant');
             const zoneIndex = headers.indexOf('PVO_Zone');
             const typeIndex = headers.indexOf('PVO_type');
@@ -1197,12 +1117,10 @@ const ExportacionVariablesPage = () => {
             const zone = zoneIndex !== -1 ? cells[zoneIndex] : '';
             const id = idIndex !== -1 ? cells[idIndex] : '';
 
-            // Crear el ID completo: Planta_Zona_ID
             const fullId = [plant, id].filter(part => part !== '').join('_') || 'N/A';
 
             const field = cells[fieldIndex] || '';
             const time = cells[timeIndex] || '';
-            // Convertir punto decimal a coma
             const value = (cells[valueIndex] || '').replace('.', ',');
 
             dataPoints.push({ id: fullId, field, time, value });
@@ -1211,11 +1129,9 @@ const ExportacionVariablesPage = () => {
           }
         });
 
-        // Convertir a arrays ordenados
         const sortedIds = Array.from(uniqueIds).sort();
         const sortedFields = Array.from(uniqueFields).sort();
 
-        // Crear cabeceras dinámicas: tiempo + combinaciones ID_Variable
         const csvHeaders = ['tiempo'];
         sortedIds.forEach(id => {
           sortedFields.forEach(field => {
@@ -1223,7 +1139,6 @@ const ExportacionVariablesPage = () => {
           });
         });
 
-        // Agrupar datos por tiempo
         const timeGroups = new Map();
         dataPoints.forEach(({ id, field, time, value }) => {
           if (!timeGroups.has(time)) {
@@ -1234,13 +1149,11 @@ const ExportacionVariablesPage = () => {
           timeGroup.set(key, value);
         });
 
-        // Construir CSV - CAMBIOS AQUÍ: usar ; como separador y sin comillas
         let csvContent = csvHeaders.join(';') + '\n';
 
-        // Ordenar tiempos y crear filas
         const sortedTimes = Array.from(timeGroups.keys()).sort();
         sortedTimes.forEach(time => {
-          const row = [time]; // Empezar con el tiempo
+          const row = [time];
 
           sortedIds.forEach(id => {
             sortedFields.forEach(field => {
@@ -1263,7 +1176,6 @@ const ExportacionVariablesPage = () => {
         URL.revokeObjectURL(url);
       }
     } else if (format === 'json') {
-      // Para JSON también filtrar las mismas columnas
       const lines = queryResult.data.split('\n').filter(line => line.trim());
       if (lines.length > 1) {
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
@@ -1304,7 +1216,6 @@ const ExportacionVariablesPage = () => {
     const queryToCopy = useCustomQuery ? customQuery : rawQuery;
     try {
       await navigator.clipboard.writeText(queryToCopy);
-      // Mostrar feedback temporal
       const button = document.activeElement;
       const originalHTML = button.innerHTML;
 
@@ -1318,9 +1229,7 @@ const ExportacionVariablesPage = () => {
     }
   };
 
-  // Memoizar opciones disponibles para filtros
   const filterOptions = useMemo(() => {
-    // Mapeo de campos técnicos a nombres amigables
     const allowedFields = [
       { value: 'PVO_Plant', label: 'Planta' },
       { value: 'PVO_Zone', label: 'Zona' },
@@ -1329,10 +1238,8 @@ const ExportacionVariablesPage = () => {
       { value: '_field', label: 'Variable' }
     ];
 
-    // Obtener las claves de filtros ya utilizadas
     const usedFilterKeys = filters.map(filter => filter.key).filter(key => key !== '');
 
-    // Filtrar opciones que no estén ya en uso
     const availableOptions = allowedFields.filter(field =>
       !usedFilterKeys.includes(field.value)
     );
@@ -1343,7 +1250,6 @@ const ExportacionVariablesPage = () => {
     };
   }, [filters]);
 
-  // Agregar esta función después de los otros useCallback
   const getAvailableOptionsForFilter = useCallback((currentFilterId) => {
     const allowedFields = [
       { value: 'PVO_Plant', label: 'Planta' },
@@ -1353,12 +1259,10 @@ const ExportacionVariablesPage = () => {
       { value: '_field', label: 'Variable' }
     ];
 
-    // Obtener las claves de filtros ya utilizadas (excluyendo el filtro actual)
     const usedFilterKeys = filters
       .filter(filter => filter.id !== currentFilterId && filter.key !== '')
       .map(filter => filter.key);
 
-    // Filtrar opciones que no estén ya en uso
     return allowedFields.filter(field =>
       !usedFilterKeys.includes(field.value)
     );
@@ -1377,13 +1281,11 @@ const ExportacionVariablesPage = () => {
 
       const days = [];
 
-      // Días del mes anterior para completar la primera semana
       for (let i = startingDayOfWeek - 1; i >= 0; i--) {
         const prevDate = new Date(year, month, -i);
         days.push({ date: prevDate, isCurrentMonth: false });
       }
 
-      // Días del mes actual
       for (let day = 1; day <= daysInMonth; day++) {
         const date = new Date(year, month, day);
         days.push({ date, isCurrentMonth: true });
@@ -1411,10 +1313,9 @@ const ExportacionVariablesPage = () => {
       return dateStr > start && dateStr < end;
     };
 
-    // Función para verificar si una fecha es futura
     const isFutureDate = (date) => {
       const today = new Date();
-      today.setHours(0, 0, 0, 0); // Resetear horas para comparar solo fechas
+      today.setHours(0, 0, 0, 0);
       return date > today;
     };
 
@@ -1521,12 +1422,11 @@ const ExportacionVariablesPage = () => {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {filters
                   .filter(filter => {
-                    // Ocultar filtros de planta automáticos si vienes desde una URL de planta
                     const plantaParam = searchParams.get('planta');
                     if (plantaParam && filter.key === 'PVO_Plant') {
-                      return false; // No mostrar este filtro
+                      return false;
                     }
-                    return true; // Mostrar todos los demás filtros
+                    return true;
                   })
                   .map(filter => (
                     <div key={filter.id} className="border border-custom rounded-lg p-3">
@@ -1687,7 +1587,6 @@ const ExportacionVariablesPage = () => {
                   <h4 className="text-sm font-medium text-primary">Horarios</h4>
 
                   {timeRange.selectedDates.length === 1 ? (
-                    // Para una sola fecha
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium mb-1 text-secondary">
@@ -1731,7 +1630,6 @@ const ExportacionVariablesPage = () => {
                       </div>
                     </div>
                   ) : (
-                    // Para rango de fechas
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium mb-1 text-secondary">
@@ -1916,13 +1814,11 @@ const ExportacionVariablesPage = () => {
                     const lines = queryResult.data.split('\n').filter(line => line.trim());
                     if (lines.length <= 1) return null;
 
-                    // Obtener los headers y encontrar los índices de las columnas que queremos
                     const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
                     const fieldIndex = headers.indexOf('_field');
                     const timeIndex = headers.indexOf('_time');
                     const valueIndex = headers.indexOf('_value');
 
-                    // Verificar que existan las columnas requeridas
                     if (fieldIndex === -1 || timeIndex === -1 || valueIndex === -1) {
                       return (
                         <tr>
@@ -1933,13 +1829,11 @@ const ExportacionVariablesPage = () => {
                       );
                     }
 
-                    // Procesar las filas de datos (máximo 100 para la vista)
                     return lines.slice(1, 101).map((row, rowIndex) => {
                       if (!row.trim()) return null;
 
                       const cells = row.split(',').map(cell => cell.replace(/"/g, '').trim());
 
-                      // Verificar que la fila tenga suficientes columnas
                       if (cells.length <= Math.max(fieldIndex, timeIndex, valueIndex)) {
                         return null;
                       }

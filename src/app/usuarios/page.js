@@ -1,22 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Plus, Edit, Trash2, Search, AlertTriangle, Bell, BellOff, X, Check } from 'lucide-react';
 import { useUsers } from '../hooks/useUsers';
 
 const UsersPage = () => {
-    const [plants, setPlants] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterRole, setFilterRole] = useState('all');
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState(null);
-    const [showDropdown, setShowDropdown] = useState(null);
     const [showSuccessPopup, setShowSuccessPopup] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
 
-    // Usar el hook personalizado para usuarios
     const {
         users,
         loading,
@@ -27,30 +24,22 @@ const UsersPage = () => {
         checkUsernameAvailable
     } = useUsers();
 
-    // Lista de plantas disponibles con mejor mapeo
-    const mockPlants = [
+    const plants = useMemo(() => [
         { id: 'LAMAJA', name: 'La Maja' },
         { id: 'RETAMAR', name: 'Retamar' },
         { id: 'TOTAL', name: 'Todas las plantas' }
-    ];
+    ], []);
 
-    useEffect(() => {
-        setPlants(mockPlants);
-    }, []);
-
-    // Función para obtener el nombre de una planta por su ID
-    const getPlantName = (plantId) => {
+    const getPlantName = useCallback((plantId) => {
         const plant = plants.find(p => p.id === plantId);
         return plant ? plant.name : plantId;
-    };
+    }, [plants]);
 
-    // Función para formatear la lista de plantas asignadas
-    const formatAssignedPlants = (plantasAsignadas) => {
+    const formatAssignedPlants = useCallback((plantasAsignadas) => {
         if (!plantasAsignadas || plantasAsignadas.length === 0) {
             return { display: 'Sin plantas', count: 0, list: [] };
         }
 
-        // Si tiene todas las plantas
         if (plantasAsignadas.includes('TOTAL') ||
             (plantasAsignadas.includes('LAMAJA') && plantasAsignadas.includes('RETAMAR'))) {
             return {
@@ -60,7 +49,6 @@ const UsersPage = () => {
             };
         }
 
-        // Mapear IDs a nombres
         const plantNames = plantasAsignadas.map(id => getPlantName(id));
 
         if (plantNames.length === 1) {
@@ -82,13 +70,11 @@ const UsersPage = () => {
                 list: plantNames
             };
         }
-    };
+    }, [plants]);
 
-    // Componente del pop-up:
     const SuccessPopup = () => {
         if (!showSuccessPopup) return null;
 
-        // Detectar modo oscuro
         const isDark = document.documentElement.classList.contains('dark');
 
         const popupStyles = {
@@ -129,27 +115,26 @@ const UsersPage = () => {
         );
     };
 
-    // Función para mostrar pop-up de éxito:
-    const showSuccess = (message) => {
+    const showSuccess = useCallback((message) => {
         setSuccessMessage(message);
         setShowSuccessPopup(true);
         setTimeout(() => {
             setShowSuccessPopup(false);
-        }, 3000); // Se oculta después de 3 segundos
-    };
+        }, 3000);
+    }, []);
 
-    // Filtrar usuarios
-    const filteredUsers = users.filter(user => {
-        const matchesSearch = user.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.nombre_usuario.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.email.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesRole = filterRole === 'all' || user.rol === filterRole;
+    const filteredUsers = useMemo(() => {
+        return users.filter(user => {
+            const matchesSearch = user.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                user.nombre_usuario.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                user.email.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesRole = filterRole === 'all' || user.rol === filterRole;
 
-        return matchesSearch && matchesRole;
-    });
+            return matchesSearch && matchesRole;
+        });
+    }, [users, searchTerm, filterRole]);
 
-    // Funciones de utilidad
-    const getRoleBadge = (role) => {
+    const getRoleBadge = useCallback((role) => {
         const roles = {
             admin: {
                 label: 'Administrador',
@@ -167,24 +152,22 @@ const UsersPage = () => {
                 {roleInfo.label}
             </span>
         );
-    };
+    }, []);
 
-    const handleCreateUser = () => {
+    const handleCreateUser = useCallback(() => {
         setSelectedUser(null);
         setShowCreateModal(true);
-    };
+    }, []);
 
-    const handleEditUser = (user) => {
+    const handleEditUser = useCallback((user) => {
         setSelectedUser(user);
         setShowEditModal(true);
-        setShowDropdown(null);
-    };
+    }, []);
 
-    const handleDeleteUser = (user) => {
+    const handleDeleteUser = useCallback((user) => {
         setSelectedUser(user);
         setShowDeleteModal(true);
-        setShowDropdown(null);
-    };
+    }, []);
 
     const UserModal = ({ show, onClose, user, title, isDelete = false }) => {
         const [formData, setFormData] = useState({
@@ -194,7 +177,7 @@ const UsersPage = () => {
             rol: 'cliente',
             notify_alarms: false,
             plantas_asignadas: [],
-            password: '' // Solo para crear nuevos usuarios
+            password: ''
         });
         const [errors, setErrors] = useState({});
         const [isSubmitting, setIsSubmitting] = useState(false);
@@ -226,16 +209,13 @@ const UsersPage = () => {
 
         if (!show) return null;
 
-        // Validaciones
         const validateForm = () => {
             const newErrors = {};
 
-            // Validar nombre
             if (!formData.nombre.trim()) {
                 newErrors.nombre = 'El nombre es obligatorio';
             }
 
-            // Validar username (sin espacios al inicio/final)
             const username = formData.nombre_usuario.trim();
             if (!username) {
                 newErrors.nombre_usuario = 'El nombre de usuario es obligatorio';
@@ -243,7 +223,6 @@ const UsersPage = () => {
                 newErrors.nombre_usuario = 'El nombre de usuario no debe tener espacios al inicio o final';
             }
 
-            // Validar email (sin espacios al inicio/final)
             const email = formData.email.trim();
             if (!email) {
                 newErrors.email = 'El email es obligatorio';
@@ -253,17 +232,14 @@ const UsersPage = () => {
                 newErrors.email = 'El formato del email no es válido';
             }
 
-            // Validar que username y email sean iguales
             if (username && email && username !== email) {
                 newErrors.emailMatch = 'El nombre de usuario y el email deben ser iguales';
             }
 
-            // Validar contraseña para nuevos usuarios
             if (!user && (!formData.password || formData.password.length < 6)) {
                 newErrors.password = 'La contraseña debe tener al menos 6 caracteres';
             }
 
-            // Validar plantas asignadas
             if (formData.plantas_asignadas.length === 0) {
                 newErrors.plants = 'Debe asignar al menos una planta';
             }
@@ -301,7 +277,6 @@ const UsersPage = () => {
 
             try {
                 if (user) {
-                    // Editar usuario existente
                     const result = await updateUser(user.id, formData);
                     if (result.success) {
                         onClose();
@@ -310,7 +285,6 @@ const UsersPage = () => {
                         setErrors({ submit: result.error });
                     }
                 } else {
-                    // Crear nuevo usuario
                     const result = await createUser(formData);
                     if (result.success) {
                         onClose();
@@ -331,10 +305,9 @@ const UsersPage = () => {
             setFormData({
                 ...formData,
                 nombre_usuario: value,
-                email: value // Sincronizar email con username
+                email: value
             });
 
-            // Verificar disponibilidad si no es el usuario actual
             if (value && value.length > 3 && value !== user?.nombre_usuario) {
                 setUsernameChecking(true);
                 try {
@@ -363,19 +336,17 @@ const UsersPage = () => {
             setFormData({
                 ...formData,
                 email: value,
-                nombre_usuario: value // Sincronizar username con email
+                nombre_usuario: value
             });
         };
 
         const addPlant = (plantId) => {
-            // Si selecciona "TOTAL", limpiar otras plantas y solo agregar TOTAL
             if (plantId === 'TOTAL') {
                 setFormData({
                     ...formData,
                     plantas_asignadas: ['TOTAL']
                 });
             } else {
-                // Si ya tiene TOTAL, reemplazarlo con la planta específica
                 let newPlants = formData.plantas_asignadas.filter(id => id !== 'TOTAL');
 
                 if (!newPlants.includes(plantId)) {
@@ -449,14 +420,12 @@ const UsersPage = () => {
                         </div>
                     ) : (
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            {/* Error general */}
                             {errors.submit && (
                                 <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                                     <p className="text-red-700 dark:text-red-400 text-sm">{errors.submit}</p>
                                 </div>
                             )}
 
-                            {/* Nombre completo */}
                             <div>
                                 <label className="block text-sm font-medium text-primary mb-1">
                                     Nombre completo *
@@ -474,7 +443,6 @@ const UsersPage = () => {
                                 )}
                             </div>
 
-                            {/* Email / Username */}
                             <div>
                                 <label className="block text-sm font-medium text-primary mb-1">
                                     Email (será el nombre de usuario) *
@@ -505,7 +473,6 @@ const UsersPage = () => {
                                 )}
                             </div>
 
-                            {/* Contraseña (solo para nuevos usuarios) */}
                             {!user && (
                                 <div>
                                     <label className="block text-sm font-medium text-primary mb-1">
@@ -526,7 +493,6 @@ const UsersPage = () => {
                                 </div>
                             )}
 
-                            {/* Rol */}
                             <div>
                                 <label className="block text-sm font-medium text-primary mb-1">
                                     Rol *
@@ -542,13 +508,11 @@ const UsersPage = () => {
                                 </select>
                             </div>
 
-                            {/* Plantas asignadas */}
                             <div>
                                 <label className="block text-sm font-medium text-primary mb-2">
                                     Plantas asignadas *
                                 </label>
 
-                                {/* Selector de plantas */}
                                 <select
                                     onChange={(e) => {
                                         if (e.target.value) {
@@ -562,11 +526,9 @@ const UsersPage = () => {
                                     <option value="">Seleccionar planta...</option>
                                     {plants
                                         .filter(plant => {
-                                            // Si ya tiene TOTAL, no mostrar otras opciones
                                             if (formData.plantas_asignadas.includes('TOTAL')) {
                                                 return false;
                                             }
-                                            // Si no tiene la planta, mostrarla
                                             return !formData.plantas_asignadas.includes(plant.id);
                                         })
                                         .map(plant => (
@@ -577,7 +539,6 @@ const UsersPage = () => {
                                     }
                                 </select>
 
-                                {/* Lista de plantas asignadas */}
                                 <div className="space-y-2">
                                     {formData.plantas_asignadas.map(plantId => {
                                         const plant = plants.find(p => p.id === plantId);
@@ -606,7 +567,6 @@ const UsersPage = () => {
                                 )}
                             </div>
 
-                            {/* Notificar alarmas */}
                             <div className="space-y-3">
                                 <h3 className="text-sm font-medium text-primary">Notificaciones</h3>
 
@@ -681,20 +641,9 @@ const UsersPage = () => {
 
     return (
         <div className="p-6 space-y-6">
-            {/* Pop-up de éxito */}
             <SuccessPopup />
 
-            {/* Overlay para cerrar dropdowns */}
-            {showDropdown && (
-                <div
-                    className="fixed inset-0 z-5"
-                    onClick={() => setShowDropdown(null)}
-                />
-            )}
-
-            {/* Filtros y acciones */}
             <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-                {/* Barra de búsqueda */}
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-secondary" size={16} />
                     <input
@@ -706,7 +655,6 @@ const UsersPage = () => {
                     />
                 </div>
 
-                {/* Filtro de rol */}
                 <select
                     value={filterRole}
                     onChange={(e) => setFilterRole(e.target.value)}
@@ -717,7 +665,6 @@ const UsersPage = () => {
                     <option value="cliente">Cliente</option>
                 </select>
 
-                {/* Botón crear usuario */}
                 <button
                     onClick={handleCreateUser}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors cursor-pointer whitespace-nowrap"
@@ -727,7 +674,6 @@ const UsersPage = () => {
                 </button>
             </div>
 
-            {/* Tabla de usuarios */}
             <div className="bg-panel rounded-lg overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full">
@@ -824,7 +770,6 @@ const UsersPage = () => {
                 )}
             </div>
 
-            {/* Modales */}
             <UserModal
                 show={showCreateModal}
                 onClose={() => setShowCreateModal(false)}
@@ -845,14 +790,6 @@ const UsersPage = () => {
                 title="Eliminar Usuario"
                 isDelete={true}
             />
-
-            {/* Overlay para cerrar dropdowns */}
-            {showDropdown && (
-                <div
-                    className="fixed inset-0 z-5"
-                    onClick={() => setShowDropdown(null)}
-                />
-            )}
         </div>
     );
 };

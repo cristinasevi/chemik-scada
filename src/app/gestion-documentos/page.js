@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search, Move,
     Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
@@ -38,6 +38,7 @@ const GestionDocumentosPage = () => {
     const [draggedItem, setDraggedItem] = useState(null);
     const [dragOverFolder, setDragOverFolder] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [queryCache, setQueryCache] = useState(new Map());
 
     const isAdmin = () => {
         return profile?.rol === 'admin' || profile?.rol === 'empleado';
@@ -213,7 +214,7 @@ const GestionDocumentosPage = () => {
     const isDescendantFolder = (folderId, ancestorId) => {
         if (!folderId || folderId === 'root') return false;
 
-        const folder = folders.find(f => f.id === folderId);
+        const folder = folders.find(f => f.id === folderId); // ⬅️ CORRECTO: usar folderId
         if (!folder) return false;
 
         if (folder.parent_id === ancestorId) return true;
@@ -386,13 +387,13 @@ const GestionDocumentosPage = () => {
     useEffect(() => {
         const pollInterval = setInterval(async () => {
             try {
-                if (!isUploading && !loading && !isDragging) {
+                if (!isUploading && !loading && !isDragging && !document.hidden) {
                     await reloadAllData(true);
                 }
             } catch (error) {
                 console.error('Error en polling:', error);
             }
-        }, 5000);
+        }, 10000);
 
         return () => {
             clearInterval(pollInterval);
@@ -600,27 +601,33 @@ const GestionDocumentosPage = () => {
     };
 
     const loadFoldersFromSupabase = async (skipNotification = true) => {
+        const cacheKey = 'folders';
+
+        if (queryCache.has(cacheKey)) {
+            const cached = queryCache.get(cacheKey);
+            if (Date.now() - cached.timestamp < 30000) {
+                setFolders(cached.data);
+                return cached.data;
+            }
+        }
+
         try {
             const { data, error } = await supabase
                 .from('folders')
                 .select('*')
                 .order('name');
 
-            if (error) {
-                console.error('Error cargando carpetas:', error);
-                throw error;
-            }
+            if (error) throw error;
 
-            if (!data || data.length === 0) {
-                await createInitialStructure();
-                return [];
-            }
+            setQueryCache(prev => new Map(prev).set(cacheKey, {
+                data: data || [],
+                timestamp: Date.now()
+            }));
 
-            setFolders(data);
-            return data;
+            setFolders(data || []);
+            return data || [];
         } catch (error) {
             console.error('Error loading folders:', error);
-            await createInitialStructure();
             return [];
         }
     };
@@ -818,7 +825,7 @@ const GestionDocumentosPage = () => {
             const { data, error } = await supabase
                 .from('documents')
                 .select('*')
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
 
             if (error) {
                 console.error('Error cargando documentos:', error);
@@ -826,7 +833,6 @@ const GestionDocumentosPage = () => {
             }
 
             setDocuments(data || []);
-
             return data || [];
         } catch (error) {
             console.error('Error loading documents:', error);
@@ -1173,23 +1179,22 @@ const GestionDocumentosPage = () => {
 
     useEffect(() => {
         const initializeData = async () => {
-            setLoading(true);
             try {
-                const [foldersResult, documentsResult] = await Promise.all([
-                    loadFoldersFromSupabase(true),
-                    loadDocumentsFromSupabase(true)
-                ]);
+                // Cargar carpetas PRIMERO (más rápido)
+                const foldersResult = await loadFoldersFromSupabase(true);
+                setLoading(false); // ⬅️ MOSTRAR UI INMEDIATAMENTE
 
-                // Si es cliente con una sola planta, seleccionar automáticamente su carpeta
+                // Cargar documentos en segundo plano
+                loadDocumentsFromSupabase(true);
+
+                // Manejar planta única después
                 const singlePlant = getSinglePlant();
-                if (singlePlant && foldersResult && foldersResult.length > 0) {
-                    // Buscar la carpeta que corresponde a la planta del usuario
+                if (singlePlant && foldersResult?.length > 0) {
                     const plantFolder = foldersResult.find(folder =>
                         folder.name.toLowerCase().includes(singlePlant.toLowerCase()) ||
                         (folder.name.toLowerCase() === 'lamaja' && singlePlant === 'LAMAJA') ||
                         (folder.name.toLowerCase() === 'retamar' && singlePlant === 'RETAMAR')
                     );
-
                     if (plantFolder) {
                         setSelectedFolder(plantFolder.id);
                         setExpandedFolders(new Set([plantFolder.id]));
@@ -1197,13 +1202,9 @@ const GestionDocumentosPage = () => {
                 }
             } catch (error) {
                 console.error('Error initializing data:', error);
-                showNotification('Error al cargar datos: ' + error.message, 'error');
-            } finally {
                 setLoading(false);
             }
         };
-
-        // Solo ejecutar una vez al montar el componente
         initializeData();
     }, []);
 
@@ -1524,7 +1525,142 @@ const GestionDocumentosPage = () => {
         }
     });
 
-    const renderFolderTree = (folder, level = 0) => {
+    const handleDirectFileUpload = async (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            await handleFileUpload(files);
+        }
+        // Limpiar el input para poder seleccionar los mismos archivos otra vez
+        e.target.value = '';
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (showFolderMenu) {
+                setShowFolderMenu(null);
+            }
+        };
+
+        document.addEventListener('click', handleClickOutside);
+        return () => {
+            document.removeEventListener('click', handleClickOutside);
+        };
+    }, [showFolderMenu]);
+
+    const breadcrumb = useMemo(() => {
+        const singlePlant = getSinglePlant();
+
+        // Si es cliente con una sola planta, mostrar solo el nombre de la planta
+        if (singlePlant) {
+            if (selectedFolder === 'root') {
+                return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+            }
+
+            const folder = folders.find(f => f.id === selectedFolder);
+            if (!folder) return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+
+            const buildPath = (currentFolder) => {
+                if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
+                    return currentFolder ? [currentFolder.name] : [];
+                }
+
+                const parent = folders.find(f => f.id === currentFolder.parent_id);
+                return [...buildPath(parent), currentFolder.name];
+            };
+
+            const path = buildPath(folder);
+            const plantName = singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+
+            return path.length > 1 ? `${plantName} > ${path.slice(1).join(' > ')}` : plantName;
+        }
+
+        // Para admin o usuarios con múltiples plantas
+        if (selectedFolder === 'root') return 'PLANTAS';
+        const folder = folders.find(f => f.id === selectedFolder);
+
+        if (!folder) return 'PLANTAS';
+
+        const buildPath = (currentFolder) => {
+            if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
+                return currentFolder ? [currentFolder.name] : [];
+            }
+
+            const parent = folders.find(f => f.id === currentFolder.parent_id);
+            return [...buildPath(parent), currentFolder.name];
+        };
+
+        const path = buildPath(folder);
+        return 'PLANTAS > ' + path.join(' > ');
+    }, [selectedFolder, folders, getSinglePlant]);
+
+    const handleDownload = async (doc) => {
+        try {
+
+            // Fetch del archivo para forzar la descarga
+            const response = await fetch(doc.file_url, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error al descargar: ${response.status}`);
+            }
+
+            // Convertir a blob
+            const blob = await response.blob();
+
+            // Crear URL del blob
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Crear enlace de descarga
+            const link = document.createElement('a');
+            link.href = blobUrl;
+
+            // Usar el nombre original o el nombre del documento
+            const filename = doc.original_name || doc.name || 'archivo_descargado';
+            link.download = filename;
+
+            // Configurar atributos para forzar descarga
+            link.style.display = 'none';
+            link.target = '_blank';
+
+            // Agregar al DOM, hacer clic y remover
+            document.body.appendChild(link);
+            link.click();
+
+            // Limpiar después de un momento
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl); // Liberar memoria
+            }, 100);
+
+            // Mostrar notificación de éxito
+            showNotification(`Archivo "${filename}" descargado correctamente`, 'success');
+
+        } catch (error) {
+            console.error('Error downloading file:', error);
+            showNotification('Error al descargar el archivo: ' + error.message, 'error');
+        } finally {
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                    <p className="text-gray-500 text-sm">Cargando documentos...</p>
+                </div>
+            </div>
+        );
+    }
+
+    const folderHierarchy = getFolderHierarchy();
+
+    // AGREGAR antes del return final:
+    const renderFolder = (folder, level = 0) => {
         const isExpanded = expandedFolders.has(folder.id);
         const isSelected = selectedFolder === folder.id;
         const hasChildren = folder.children && folder.children.length > 0;
@@ -1614,7 +1750,6 @@ const GestionDocumentosPage = () => {
                                 {folder.name}
                             </span>
 
-                            {/* Menú de tres puntos que aparece en hover - Solo para admin */}
                             {isAdmin() && (
                                 <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
@@ -1627,7 +1762,6 @@ const GestionDocumentosPage = () => {
                                         <MoreVertical size={14} className="text-gray-500" />
                                     </button>
 
-                                    {/* Menú contextual */}
                                     {showFolderMenu === folder.id && (
                                         <div className="absolute right-2 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[120px]">
                                             <button
@@ -1662,147 +1796,13 @@ const GestionDocumentosPage = () => {
                     <div className="ml-2">
                         {folder.children
                             .sort((a, b) => a.name.localeCompare(b.name))
-                            .map(child => renderFolderTree(child, level + 1))
+                            .map(child => renderFolder(child, level + 1))
                         }
                     </div>
                 )}
             </div>
         );
     };
-
-    const handleDirectFileUpload = async (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            await handleFileUpload(files);
-        }
-        // Limpiar el input para poder seleccionar los mismos archivos otra vez
-        e.target.value = '';
-    };
-
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (showFolderMenu) {
-                setShowFolderMenu(null);
-            }
-        };
-
-        document.addEventListener('click', handleClickOutside);
-        return () => {
-            document.removeEventListener('click', handleClickOutside);
-        };
-    }, [showFolderMenu]);
-
-    const getBreadcrumb = (folderId) => {
-        const singlePlant = getSinglePlant();
-
-        // Si es cliente con una sola planta, mostrar solo el nombre de la planta
-        if (singlePlant) {
-            if (folderId === 'root') {
-                return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
-            }
-
-            const folder = folders.find(f => f.id === folderId);
-            if (!folder) return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
-
-            const buildPath = (currentFolder) => {
-                if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
-                    return currentFolder ? [currentFolder.name] : [];
-                }
-
-                const parent = folders.find(f => f.id === currentFolder.parent_id);
-                return [...buildPath(parent), currentFolder.name];
-            };
-
-            const path = buildPath(folder);
-            const plantName = singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
-
-            return path.length > 1 ? `${plantName} > ${path.slice(1).join(' > ')}` : plantName;
-        }
-
-        // Para admin o usuarios con múltiples plantas
-        if (folderId === 'root') return 'PLANTAS';
-
-        const folder = folders.find(f => f.id === folderId);
-        if (!folder) return 'PLANTAS';
-
-        const buildPath = (currentFolder) => {
-            if (!currentFolder || currentFolder.parent_id === null || currentFolder.parent_id === 'root') {
-                return currentFolder ? [currentFolder.name] : [];
-            }
-
-            const parent = folders.find(f => f.id === currentFolder.parent_id);
-            return [...buildPath(parent), currentFolder.name];
-        };
-
-        const path = buildPath(folder);
-        return 'PLANTAS > ' + path.join(' > ');
-    };
-
-    const handleDownload = async (doc) => {
-        try {
-
-            // Fetch del archivo para forzar la descarga
-            const response = await fetch(doc.file_url, {
-                method: 'GET',
-                headers: {
-                    'Cache-Control': 'no-cache',
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`Error al descargar: ${response.status}`);
-            }
-
-            // Convertir a blob
-            const blob = await response.blob();
-
-            // Crear URL del blob
-            const blobUrl = URL.createObjectURL(blob);
-
-            // Crear enlace de descarga
-            const link = document.createElement('a');
-            link.href = blobUrl;
-
-            // Usar el nombre original o el nombre del documento
-            const filename = doc.original_name || doc.name || 'archivo_descargado';
-            link.download = filename;
-
-            // Configurar atributos para forzar descarga
-            link.style.display = 'none';
-            link.target = '_blank';
-
-            // Agregar al DOM, hacer clic y remover
-            document.body.appendChild(link);
-            link.click();
-
-            // Limpiar después de un momento
-            setTimeout(() => {
-                document.body.removeChild(link);
-                URL.revokeObjectURL(blobUrl); // Liberar memoria
-            }, 100);
-
-            // Mostrar notificación de éxito
-            showNotification(`Archivo "${filename}" descargado correctamente`, 'success');
-
-        } catch (error) {
-            console.error('Error downloading file:', error);
-            showNotification('Error al descargar el archivo: ' + error.message, 'error');
-        } finally {
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <div className="text-center">
-                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-                    <p className="text-gray-500 text-sm">Cargando documentos...</p>
-                </div>
-            </div>
-        );
-    }
-
-    const folderHierarchy = getFolderHierarchy();
 
     return (
         <div className="h-screen flex flex-col bg-gray-50">
@@ -1890,7 +1890,7 @@ const GestionDocumentosPage = () => {
                         <div className="space-y-1">
                             {folderHierarchy.map(folder => (
                                 <div key={folder.id} className="group">
-                                    {renderFolderTree(folder)}
+                                    {renderFolder(folder)}
                                 </div>
                             ))}
 
@@ -1951,7 +1951,7 @@ const GestionDocumentosPage = () => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <div className="text-sm text-gray-600 font-medium">
-                                    {getBreadcrumb(selectedFolder)}
+                                    {breadcrumb}
                                 </div>
                                 <div className="text-xs text-gray-400">
                                     ({sortedDocuments.length} archivo{sortedDocuments.length !== 1 ? 's' : ''})

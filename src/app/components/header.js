@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Moon, Sun, User, LogOut, Bell } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Navbar from './navbar';
 
 const Header = () => {
   const { user, logout, profile, getSinglePlant, canAccessMainDashboard } = useAuth();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [isDark, setIsDark] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -19,43 +20,44 @@ const Header = () => {
     setIsDark(htmlClasses.includes('dark'));
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     const newTheme = !isDark;
     setIsDark(newTheme);
-    
+
     const currentClasses = document.documentElement.className;
     const baseClasses = currentClasses.replace(/\b(light|dark)\b/g, '').trim();
     const themeClass = newTheme ? 'dark' : 'light';
-    
+
     document.documentElement.className = `${baseClasses} ${themeClass}`.trim();
     localStorage.setItem('theme', themeClass);
-  };
+  }, [isDark]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setShowUserMenu(false);
     logout();
-  };
+  }, [logout]);
 
-  // Función para obtener el título dinámico basado en la ruta y permisos del usuario
-  const getPageTitle = () => {
-    // Determinar contexto actual
-    const getCurrentContext = () => {
-      if (pathname.startsWith('/lamaja')) return 'LAMAJA';
-      if (pathname.startsWith('/retamar')) return 'RETAMAR';
-      
-      // Para rutas generales, verificar parámetro de planta
-      const searchParams = new URLSearchParams(window.location.search);
-      const plantaParam = searchParams.get('planta');
-      if (plantaParam === 'lamaja') return 'LAMAJA';
-      if (plantaParam === 'retamar') return 'RETAMAR';
-      
-      return 'MAIN';
-    };
+  const handleUserMenuToggle = useCallback(() => {
+    setShowUserMenu(prev => !prev);
+  }, []);
 
-    const context = getCurrentContext();
-    
+  const handleUserMenuClose = useCallback(() => {
+    setShowUserMenu(false);
+  }, []);
+
+  const currentContext = useMemo(() => {
+    if (pathname.startsWith('/lamaja')) return 'LAMAJA';
+    if (pathname.startsWith('/retamar')) return 'RETAMAR';
+
+    const plantaParam = searchParams.get('planta');
+    if (plantaParam === 'lamaja') return 'LAMAJA';
+    if (plantaParam === 'retamar') return 'RETAMAR';
+
+    return 'MAIN';
+  }, [pathname, searchParams]);
+
+  const pageTitle = useMemo(() => {
     if (pathname.startsWith('/lamaja')) {
-      // Mapeo de rutas específicas de La Maja
       const lamajaRoutes = {
         '/lamaja': 'Dashboard',
         '/lamaja/heat-maps': 'Heat Maps',
@@ -64,12 +66,11 @@ const Header = () => {
         '/lamaja/detalle-inversor': 'Detalle Inversor',
         '/lamaja/subestacion-cts': 'Subestación y CTs'
       };
-      
+
       const sectionName = lamajaRoutes[pathname] || 'Dashboard';
       return `La Maja - ${sectionName}`;
-      
+
     } else if (pathname.startsWith('/retamar')) {
-      // Mapeo de rutas específicas de Retamar
       const retamarRoutes = {
         '/retamar': 'Dashboard',
         '/retamar/heat-maps': 'Heat Maps',
@@ -80,21 +81,20 @@ const Header = () => {
         '/retamar/detalle-tracker': 'Detalle Tracker',
         '/retamar/facturacion': 'Facturación'
       };
-      
+
       const sectionName = retamarRoutes[pathname] || 'Dashboard';
       return `Retamar - ${sectionName}`;
-      
+
     } else {
-      // Para rutas generales, considerar el contexto
       if (pathname === '/gestion-documentos') {
-        if (context === 'LAMAJA') return 'La Maja - Gestión de Documentos';
-        if (context === 'RETAMAR') return 'Retamar - Gestión de Documentos';
+        if (currentContext === 'LAMAJA') return 'La Maja - Gestión de Documentos';
+        if (currentContext === 'RETAMAR') return 'Retamar - Gestión de Documentos';
         return 'Gestión de Documentos';
       }
-      
+
       if (pathname === '/exportacion-variables') {
-        if (context === 'LAMAJA') return 'La Maja - Exportación de Variables';
-        if (context === 'RETAMAR') return 'Retamar - Exportación de Variables';
+        if (currentContext === 'LAMAJA') return 'La Maja - Exportación de Variables';
+        if (currentContext === 'RETAMAR') return 'Retamar - Exportación de Variables';
         return 'Exportación de Variables';
       }
 
@@ -102,52 +102,43 @@ const Header = () => {
         return 'Gestión de Usuarios';
       }
 
-      // Para la página principal
       const singlePlant = getSinglePlant();
       if (pathname === '/') {
-        return singlePlant ? 
-          `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
+        return singlePlant ?
+          `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` :
           'Dashboard Principal';
       }
-      
-      return singlePlant ? 
-        `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` : 
+
+      return singlePlant ?
+        `Dashboard ${singlePlant === 'LAMAJA' ? 'La Maja' : 'Retamar'}` :
         'Dashboard Principal';
     }
-  };
+  }, [pathname, currentContext, getSinglePlant]);
 
-  // Función para obtener el color del título (opcional)
-  const getTitleColor = () => {
+  const titleColor = useMemo(() => {
     if (pathname.startsWith('/lamaja')) {
-      return;
+      return '';
     } else if (pathname.startsWith('/retamar')) {
-      return;
+      return '';
     }
     return 'text-primary';
-  };
+  }, [pathname]);
 
-  // Función para obtener información de restricción del usuario
-  const getUserRestrictionInfo = () => {
-    if (!profile || profile.rol === 'admin') return null;
-    
-    const singlePlant = getSinglePlant();
-    if (singlePlant) {
-      return;
-    }
-    
-    if (!canAccessMainDashboard()) {
-      const plantas = profile.plantas_asignadas || [];
-      if (plantas.length > 1) {
-        return `Acceso a ${plantas.length} plantas`;
-      }
-    }
-    
+  const restrictionInfo = useMemo(() => {
     return null;
-  };
+  }, []);
+
+  const userMenuItems = useMemo(() => [
+    { label: "Perfil", icon: User, onClick: null },
+    { label: "Notificaciones", icon: Bell, onClick: null },
+    {
+      label: isDark ? "Modo claro" : "Modo oscuro",
+      icon: isDark ? Sun : Moon,
+      onClick: toggleTheme
+    }
+  ], [isDark, toggleTheme]);
 
   if (!isClient || !user) return null;
-
-  const restrictionInfo = getUserRestrictionInfo();
 
   return (
     <header className="bg-header sticky top-0 z-50">
@@ -156,9 +147,9 @@ const Header = () => {
           <Navbar />
           <div className="flex items-center space-x-2">
             <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center">
-              <img 
-                src="/images/aresol.jpeg" 
-                alt="Chemik Scada Logo" 
+              <img
+                src="/images/aresol.jpeg"
+                alt="Chemik Scada Logo"
                 className="w-full h-full object-contain"
               />
             </div>
@@ -167,8 +158,8 @@ const Header = () => {
 
         <div className="flex justify-center">
           <div className="text-center">
-            <h1 className={`text-xl font-semibold ${getTitleColor()} hidden sm:block transition-colors duration-200`}>
-              {getPageTitle()}
+            <h1 className={`text-xl font-semibold ${titleColor} hidden sm:block transition-colors duration-200`}>
+              {pageTitle}
             </h1>
             {restrictionInfo && (
               <p className="text-xs text-secondary hidden sm:block">
@@ -181,7 +172,7 @@ const Header = () => {
         <div className="flex items-center justify-end space-x-2">
           <div className="relative">
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
+              onClick={handleUserMenuToggle}
               className="flex items-center space-x-2 p-2 rounded-md hover-bg transition-colors cursor-pointer"
             >
               <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-blue-300 rounded-full flex items-center justify-center">
@@ -206,27 +197,24 @@ const Header = () => {
                     <p className="text-xs text-secondary capitalize">
                       {user.role === 'admin' ? 'Administrador' : 'Cliente'}
                     </p>
-                    {restrictionInfo && (
-                      <>
-                        <span className="text-xs text-secondary">•</span>
-                        <p className="text-xs text-secondary">Limitado</p>
-                      </>
-                    )}
                   </div>
                 </div>
-                
+
                 <div className="p-2">
-                  <UserMenuItem label="Perfil" icon={User} />
-                  <UserMenuItem label="Notificaciones" icon={Bell} />
-                  <UserMenuItem 
-                    label={isDark ? "Modo claro" : "Modo oscuro"}
-                    icon={isDark ? Sun : Moon}
-                    onClick={toggleTheme}
-                  />
+                  {userMenuItems.map((item) => (
+                    <UserMenuItem
+                      key={item.label}
+                      label={item.label}
+                      icon={item.icon}
+                      onClick={item.onClick}
+                    />
+                  ))}
+
                   <div className="border-t border-custom my-2"></div>
-                  <UserMenuItem 
-                    label="Cerrar sesión" 
-                    icon={LogOut} 
+
+                  <UserMenuItem
+                    label="Cerrar sesión"
+                    icon={LogOut}
                     onClick={handleLogout}
                     className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                   />
@@ -238,23 +226,31 @@ const Header = () => {
       </div>
 
       {showUserMenu && (
-        <div 
-          className="fixed inset-0 z-40" 
-          onClick={() => setShowUserMenu(false)}
+        <div
+          className="fixed inset-0 z-40"
+          onClick={handleUserMenuClose}
         />
       )}
     </header>
   );
 };
 
-const UserMenuItem = ({ label, icon: Icon, onClick, className = "" }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full text-left px-3 py-2 text-sm text-primary hover-menu rounded-md transition-colors flex items-center space-x-2 cursor-pointer ${className}`}
-  >
-    {Icon && <Icon size={16} className="text-secondary" />}
-    <span>{label}</span>
-  </button>
-);
+const UserMenuItem = ({ label, icon: Icon, onClick, className = "" }) => {
+  const handleClick = useCallback(() => {
+    if (onClick) {
+      onClick();
+    }
+  }, [onClick]);
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`w-full text-left px-3 py-2 text-sm text-primary hover-menu rounded-md transition-colors flex items-center space-x-2 cursor-pointer ${className}`}
+    >
+      {Icon && <Icon size={16} className="text-secondary" />}
+      <span>{label}</span>
+    </button>
+  );
+};
 
 export default Header;

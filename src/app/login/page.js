@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Eye, EyeOff, User, Lock, AlertTriangle, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -17,31 +17,25 @@ const LoginPage = () => {
   const [isDark, setIsDark] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
-  // Detectar tema actual después del primer renderizado
   useEffect(() => {
     setIsClient(true);
-    
-    // Leer el tema actual del DOM
     const htmlClasses = document.documentElement.className;
     setIsDark(htmlClasses.includes('dark'));
   }, []);
 
-  // Cambiar tema
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     const newTheme = !isDark;
     setIsDark(newTheme);
     
-    // Obtener clases actuales y reemplazar solo el tema
     const currentClasses = document.documentElement.className;
     const baseClasses = currentClasses.replace(/\b(light|dark)\b/g, '').trim();
     const themeClass = newTheme ? 'dark' : 'light';
     
     document.documentElement.className = `${baseClasses} ${themeClass}`.trim();
     localStorage.setItem('theme', themeClass);
-  };
+  }, [isDark]);
 
-  // Validar formulario
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     const newErrors = {};
 
     if (!formData.username.trim()) {
@@ -58,10 +52,9 @@ const LoginPage = () => {
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
+  }, [formData.username, formData.password]);
 
-  // Manejar envío del formulario
-  const handleSubmit = async (e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     setLoginError('');
 
@@ -75,7 +68,6 @@ const LoginPage = () => {
       const result = await login(formData.username, formData.password);
 
       if (!result.success) {
-        // Manejar diferentes tipos de error
         if (result.error.includes('Invalid login credentials')) {
           setLoginError('Email o contraseña incorrectos');
         } else if (result.error.includes('Email not confirmed')) {
@@ -86,35 +78,47 @@ const LoginPage = () => {
           setLoginError(result.error || 'Error de autenticación');
         }
       }
-      // Si el login es exitoso, el AuthContext se encarga de la redirección
     } catch (error) {
       console.error('Error en login:', error);
       setLoginError('Error de conexión. Inténtalo de nuevo.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [formData.username, formData.password, login, validateForm]);
 
-  // Manejar cambios en los inputs
-  const handleInputChange = (field, value) => {
+  const handleInputChange = useCallback((field, value) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
     
-    // Limpiar errores al escribir
     if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: ''
-      }));
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
     }
     
-    // Limpiar error de login
     if (loginError) {
       setLoginError('');
     }
-  };
+  }, [errors, loginError]);
+
+  const togglePassword = useCallback(() => {
+    setShowPassword(prev => !prev);
+  }, []);
+
+  const inputClasses = useMemo(() => ({
+    username: `w-full pl-10 pr-4 py-3 border rounded-lg bg-background text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+      errors.username ? 'border-red-500' : 'border-custom'
+    }`,
+    password: `w-full pl-10 pr-12 py-3 border rounded-lg bg-background text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+      errors.password ? 'border-red-500' : 'border-custom'
+    }`
+  }), [errors.username, errors.password]);
+
+  const isDisabled = useMemo(() => isLoading || authLoading, [isLoading, authLoading]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -173,11 +177,9 @@ const LoginPage = () => {
                     type="email"
                     value={formData.username}
                     onChange={(e) => handleInputChange('username', e.target.value)}
-                    className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-background text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                      errors.username ? 'border-red-500' : 'border-custom'
-                    }`}
+                    className={inputClasses.username}
                     placeholder="usuario@chemik.es"
-                    disabled={isLoading || authLoading}
+                    disabled={isDisabled}
                     autoComplete="username"
                   />
                 </div>
@@ -200,18 +202,16 @@ const LoginPage = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={formData.password}
                     onChange={(e) => handleInputChange('password', e.target.value)}
-                    className={`w-full pl-10 pr-12 py-3 border rounded-lg bg-background text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                      errors.password ? 'border-red-500' : 'border-custom'
-                    }`}
+                    className={inputClasses.password}
                     placeholder="••••••••"
-                    disabled={isLoading || authLoading}
+                    disabled={isDisabled}
                     autoComplete="current-password"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={togglePassword}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer"
-                    disabled={isLoading || authLoading}
+                    disabled={isDisabled}
                   >
                     {showPassword ? 
                       <EyeOff className="h-5 w-5 text-secondary hover:text-primary transition-colors" /> :
@@ -227,10 +227,10 @@ const LoginPage = () => {
               {/* Botón de login */}
               <button
                 type="submit"
-                disabled={isLoading || authLoading}
+                disabled={isDisabled}
                 className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
               >
-                {isLoading || authLoading ? (
+                {isDisabled ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     Iniciando sesión...
@@ -246,7 +246,7 @@ const LoginPage = () => {
               <button
                 type="button"
                 className="text-sm text-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
-                disabled={isLoading || authLoading}
+                disabled={isDisabled}
               >
                 ¿Olvidaste tu contraseña?
               </button>
