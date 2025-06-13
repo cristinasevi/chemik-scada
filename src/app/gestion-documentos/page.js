@@ -230,6 +230,7 @@ const GestionDocumentosPage = () => {
                     const folderData = {
                         id: folder.id,
                         name: folder.name,
+                        original_name: folder.name,
                         parent_id: actualParentId,
                         description: 'Sincronizado desde Storage',
                         category: '',
@@ -368,12 +369,14 @@ const GestionDocumentosPage = () => {
 
             const oldStoragePath = getFolderStoragePath(folder.id);
 
+            // Crear nuevo path sanitizado para storage
             let newStoragePath = '';
             if (folder.parent_id) {
                 const parentPath = getFolderStoragePath(folder.parent_id);
-                newStoragePath = parentPath ? `${parentPath}/${newName}` : newName;
+                const sanitizedNewName = sanitizeFolderName(newName);
+                newStoragePath = parentPath ? `${parentPath}/${sanitizedNewName}` : sanitizedNewName;
             } else {
-                newStoragePath = newName;
+                newStoragePath = sanitizeFolderName(newName);
             }
 
             const { data: allFiles, error: listError } = await supabase.storage
@@ -410,7 +413,8 @@ const GestionDocumentosPage = () => {
             const { error: dbError } = await supabase
                 .from('folders')
                 .update({
-                    name: newName,
+                    name: newName, // ← Nombre original CON tildes
+                    original_name: newName, // ← También actualizar original_name
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', folder.id);
@@ -457,7 +461,6 @@ const GestionDocumentosPage = () => {
         } catch (error) {
             console.error('Error renaming folder:', error);
             showNotification('Error al renombrar carpeta: ' + error.message, 'error');
-
             setEditingFolder(null);
             setEditingName('');
         } finally {
@@ -764,6 +767,7 @@ const GestionDocumentosPage = () => {
             const folderData = {
                 id: folderId,
                 name: folderName,
+                original_name: folderName,
                 parent_id: parentId === 'root' ? null : parentId,
                 description: '',
                 category: '',
@@ -782,13 +786,14 @@ const GestionDocumentosPage = () => {
                 throw error;
             }
 
+            // Para el storage, usar nombre sanitizado
             let folderStoragePath = '';
-
             if (parentId !== 'root') {
                 const parentPath = getFolderStoragePath(parentId);
-                folderStoragePath = parentPath ? `${parentPath}/${folderName}` : folderName;
+                const sanitizedName = sanitizeFolderName(folderName);
+                folderStoragePath = parentPath ? `${parentPath}/${sanitizedName}` : sanitizedName;
             } else {
-                folderStoragePath = folderName;
+                folderStoragePath = sanitizeFolderName(folderName);
             }
 
             if (folderStoragePath) {
@@ -1142,7 +1147,7 @@ const GestionDocumentosPage = () => {
                     )}
 
                     {isEditing ? (
-                        <div className="flex items-center gap-2 flex-1">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
                             <input
                                 type="text"
                                 value={editingName}
@@ -1154,28 +1159,32 @@ const GestionDocumentosPage = () => {
                                         handleCancelEdit();
                                     }
                                 }}
-                                className="flex-1 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="flex-1 min-w-0 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 autoFocus
                                 onClick={(e) => e.stopPropagation()}
                             />
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSaveRename(folder);
-                                }}
-                                className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors cursor-pointer"
-                            >
-                                <Check size={14} />
-                            </button>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCancelEdit();
-                                }}
-                                className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors cursor-pointer"
-                            >
-                                <X size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveRename(folder);
+                                    }}
+                                    className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors cursor-pointer flex-shrink-0"
+                                    title="Guardar"
+                                >
+                                    <Check size={14} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCancelEdit();
+                                    }}
+                                    className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors cursor-pointer flex-shrink-0"
+                                    title="Cancelar"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -1524,7 +1533,9 @@ const GestionDocumentosPage = () => {
                                                 <FileText className="text-blue-500 flex-shrink-0" size={20} />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-gray-900 truncate">{document.name}</span>
+                                                        <span className="font-medium text-gray-900 truncate">
+                                                            {document.original_name || document.name}
+                                                        </span>
                                                     </div>
                                                     {document.tags && document.tags.length > 0 && (
                                                         <div className="flex gap-1 mt-1">
