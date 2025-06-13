@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search,
+    ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Upload, Download, Trash2, Search, Move,
     Plus, X, MoreVertical, SortAsc, SortDesc, Calendar, Tag, RefreshCw, AlertCircle, AlertTriangle, Pencil, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,6 +35,9 @@ const GestionDocumentosPage = () => {
     const [creatingNewFolder, setCreatingNewFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const fileInputRef = useRef(null);
+    const [draggedItem, setDraggedItem] = useState(null);
+    const [dragOverFolder, setDragOverFolder] = useState(null);
+    const [isDragging, setIsDragging] = useState(false);
 
     const isAdmin = () => {
         return profile?.rol === 'admin' || profile?.rol === 'empleado';
@@ -74,6 +77,271 @@ const GestionDocumentosPage = () => {
     const handleCancelConfirm = () => {
         setShowConfirmModal(false);
         setConfirmAction(null);
+    };
+
+    const handleDragStart = (e, item, type) => {
+        if (!isAdmin()) {
+            e.preventDefault();
+            return;
+        }
+
+        setDraggedItem({ ...item, type });
+        setIsDragging(true);
+
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', '');
+
+        // Crear imagen personalizada para el drag
+        const dragImage = createDragImage(item, type);
+
+        // Usar la imagen personalizada
+        e.dataTransfer.setDragImage(dragImage, 125, 20);
+
+        // Limpiar el elemento temporal después de un momento
+        setTimeout(() => {
+            if (dragImage && dragImage.parentNode) {
+                document.body.removeChild(dragImage);
+            }
+        }, 0);
+
+        // Reducir la opacidad del elemento original solo ligeramente
+        e.target.style.opacity = '0.7';
+    };
+
+    const handleDragEnd = (e) => {
+        e.target.style.opacity = '1';
+        setDraggedItem(null);
+        setDragOverFolder(null);
+        setIsDragging(false);
+    };
+
+    const createDragImage = (item, type) => {
+        // Crear un elemento temporal para la imagen de drag
+        const dragElement = document.createElement('div');
+        dragElement.style.position = 'absolute';
+        dragElement.style.top = '-1000px';
+        dragElement.style.left = '-1000px';
+        dragElement.style.padding = '8px 12px';
+        dragElement.style.backgroundColor = '#3b82f6';
+        dragElement.style.color = 'white';
+        dragElement.style.borderRadius = '6px';
+        dragElement.style.fontSize = '14px';
+        dragElement.style.fontWeight = '500';
+        dragElement.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+        dragElement.style.maxWidth = '250px';
+        dragElement.style.whiteSpace = 'nowrap';
+        dragElement.style.overflow = 'hidden';
+        dragElement.style.textOverflow = 'ellipsis';
+
+        if (type === 'document') {
+            dragElement.innerHTML = `${item.original_name || item.name}`;
+        } else if (type === 'folder') {
+            dragElement.innerHTML = `${item.name}`;
+        }
+
+        document.body.appendChild(dragElement);
+
+        return dragElement;
+    };
+
+    const handleDragOver = (e, folderId) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+
+        if (draggedItem && isValidDropTarget(draggedItem, folderId)) {
+            setDragOverFolder(folderId);
+        }
+    };
+
+    const handleDragLeave = (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) {
+            setDragOverFolder(null);
+        }
+    };
+
+    const handleDrop = async (e, targetFolderId) => {
+        e.preventDefault();
+        setDragOverFolder(null);
+
+        if (!draggedItem || !isValidDropTarget(draggedItem, targetFolderId)) {
+            return;
+        }
+
+        try {
+            if (draggedItem.type === 'folder') {
+                await moveFolder(draggedItem, targetFolderId);
+            } else if (draggedItem.type === 'document') {
+                await moveDocument(draggedItem, targetFolderId);
+            }
+
+            showNotification('Elemento movido correctamente', 'success');
+            await refreshData(true);
+        } catch (error) {
+            console.error('Error moving item:', error);
+            showNotification('Error al mover elemento: ' + error.message, 'error');
+        }
+
+        setDraggedItem(null);
+        setIsDragging(false);
+    };
+
+    const isValidDropTarget = (draggedItem, targetFolderId) => {
+        if (!draggedItem) return false;
+
+        // No se puede mover un elemento a sí mismo
+        if (draggedItem.type === 'folder' && draggedItem.id === targetFolderId) {
+            return false;
+        }
+
+        // Para carpetas: verificar que no sea descendiente
+        if (draggedItem.type === 'folder') {
+            // Si el target es root, siempre es válido (a menos que ya esté en root)
+            if (targetFolderId === 'root') {
+                return draggedItem.parent_id !== null && draggedItem.parent_id !== 'root';
+            }
+            return !isDescendantFolder(targetFolderId, draggedItem.id);
+        }
+
+        // Para documentos: verificar que no esté ya en esa carpeta
+        if (draggedItem.type === 'document') {
+            return draggedItem.folder_id !== targetFolderId;
+        }
+
+        return true;
+    };
+
+    const isDescendantFolder = (folderId, ancestorId) => {
+        if (!folderId || folderId === 'root') return false;
+
+        const folder = folders.find(f => f.id === folderId);
+        if (!folder) return false;
+
+        if (folder.parent_id === ancestorId) return true;
+
+        return isDescendantFolder(folder.parent_id, ancestorId);
+    };
+
+    const moveFolder = async (folder, newParentId) => {
+        const oldParentId = folder.parent_id;
+
+        const { error } = await supabase
+            .from('folders')
+            .update({
+                parent_id: newParentId === 'root' ? null : newParentId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', folder.id);
+
+        if (error) throw error;
+
+        await moveFolderInStorage(folder, oldParentId, newParentId);
+    };
+
+    const moveDocument = async (document, newFolderId) => {
+        const oldFolderPath = getFolderStoragePath(document.folder_id);
+        const newFolderPath = getFolderStoragePath(newFolderId);
+
+        const fileName = document.file_path.split('/').pop();
+        const oldFilePath = document.file_path;
+        const newFilePath = newFolderPath ? `${newFolderPath}/${fileName}` : fileName;
+
+        const { error: moveError } = await supabase.storage
+            .from('documents')
+            .move(oldFilePath, newFilePath);
+
+        if (moveError) throw moveError;
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('documents')
+            .getPublicUrl(newFilePath);
+
+        const { error: updateError } = await supabase
+            .from('documents')
+            .update({
+                folder_id: newFolderId,
+                file_path: newFilePath,
+                file_url: publicUrl,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', document.id);
+
+        if (updateError) throw updateError;
+    };
+
+    const moveFolderInStorage = async (folder, oldParentId, newParentId) => {
+        const oldFolderPath = getFolderStoragePath(folder.id);
+        const newFolderPath = buildNewFolderPath(folder, newParentId);
+
+        if (oldFolderPath === newFolderPath) return;
+
+        try {
+            const { data: files, error: listError } = await supabase.storage
+                .from('documents')
+                .list(oldFolderPath, { limit: 1000 });
+
+            if (listError && !listError.message.includes('not found')) {
+                throw listError;
+            }
+
+            const filesToMove = files || [];
+
+            for (const file of filesToMove) {
+                if (file.name === '.emptyFolderPlaceholder') continue;
+
+                const oldFilePath = oldFolderPath ? `${oldFolderPath}/${file.name}` : file.name;
+                const newFilePath = newFolderPath ? `${newFolderPath}/${file.name}` : file.name;
+
+                const { error: moveError } = await supabase.storage
+                    .from('documents')
+                    .move(oldFilePath, newFilePath);
+
+                if (moveError) {
+                    console.warn(`Error moviendo ${file.name}:`, moveError);
+                    continue;
+                }
+
+                const { data: { publicUrl } } = supabase.storage
+                    .from('documents')
+                    .getPublicUrl(newFilePath);
+
+                await supabase
+                    .from('documents')
+                    .update({
+                        file_path: newFilePath,
+                        file_url: publicUrl,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('file_path', oldFilePath);
+            }
+
+            if (newFolderPath) {
+                await createFolderInStorage(newFolderPath);
+            }
+
+            try {
+                if (oldFolderPath) {
+                    await supabase.storage
+                        .from('documents')
+                        .remove([`${oldFolderPath}/.emptyFolderPlaceholder`]);
+                }
+            } catch (cleanupError) {
+                console.warn('Error limpiando carpeta anterior:', cleanupError);
+            }
+
+        } catch (error) {
+            console.error('Error moving folder in storage:', error);
+            throw error;
+        }
+    };
+
+    const buildNewFolderPath = (folder, newParentId) => {
+        if (newParentId === 'root') {
+            return sanitizeFolderName(folder.name);
+        }
+
+        const parentPath = getFolderStoragePath(newParentId);
+        const sanitizedName = sanitizeFolderName(folder.name);
+        return parentPath ? `${parentPath}/${sanitizedName}` : sanitizedName;
     };
 
     const reloadAllData = useCallback(async (silent = false) => {
@@ -118,7 +386,7 @@ const GestionDocumentosPage = () => {
     useEffect(() => {
         const pollInterval = setInterval(async () => {
             try {
-                if (!isUploading && !loading) {
+                if (!isUploading && !loading && !isDragging) {
                     await reloadAllData(true);
                 }
             } catch (error) {
@@ -1266,9 +1534,16 @@ const GestionDocumentosPage = () => {
         return (
             <div key={folder.id}>
                 <div
-                    className={`group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors relative ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''}`}
+                    className={`folder-item group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors relative ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''
+                        } ${dragOverFolder === folder.id ? 'bg-green-100 border-2 border-green-400' : ''}`}
                     style={{ paddingLeft: `${level * 16 + 8}px` }}
                     onClick={!isEditing ? () => selectFolder(folder.id) : undefined}
+                    draggable={isAdmin() && !isEditing}
+                    onDragStart={(e) => handleDragStart(e, folder, 'folder')}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, folder.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, folder.id)}
                 >
                     {hasChildren ? (
                         <button
@@ -1562,12 +1837,37 @@ const GestionDocumentosPage = () => {
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
                 <div
-                    className="w-80 border-r border-gray-200 bg-white overflow-y-auto"
+                    className={`w-80 border-r border-gray-200 bg-white overflow-y-auto ${dragOverFolder === 'root' ? 'bg-green-50' : ''
+                        }`}
                     onClick={handleBackgroundClick}
+                    onDragOver={(e) => {
+                        // Solo permitir drop en el fondo si no estamos sobre una carpeta específica
+                        if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
+                            handleDragOver(e, 'root');
+                        }
+                    }}
+                    onDragLeave={(e) => {
+                        // Solo limpiar si realmente salimos del panel completo
+                        if (!e.currentTarget.contains(e.relatedTarget)) {
+                            setDragOverFolder(null);
+                        }
+                    }}
+                    onDrop={(e) => {
+                        // Solo permitir drop en el fondo si no estamos sobre una carpeta específica
+                        if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
+                            handleDrop(e, 'root');
+                        }
+                    }}
                 >
                     <div className="p-4">
                         <div className="flex items-center justify-between mb-4">
-                            <div className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <div
+                                className={`text-sm font-semibold text-gray-700 flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-green-100 border-2 border-green-400' : ''
+                                    }`}
+                                onDragOver={(e) => handleDragOver(e, 'root')}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, 'root')}
+                            >
                                 <Folder size={16} className="text-yellow-600" />
                                 {(() => {
                                     const singlePlant = getSinglePlant();
@@ -1707,7 +2007,13 @@ const GestionDocumentosPage = () => {
                             </thead>
                             <tbody>
                                 {sortedDocuments.map(document => (
-                                    <tr key={document.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                    <tr
+                                        key={document.id}
+                                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                        draggable={isAdmin()}
+                                        onDragStart={(e) => handleDragStart(e, document, 'document')}
+                                        onDragEnd={handleDragEnd}
+                                    >
                                         {/* Solo mostrar checkbox si es admin */}
                                         {isAdmin() && (
                                             <td className="p-3">
