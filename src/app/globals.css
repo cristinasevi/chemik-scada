@@ -441,3 +441,51 @@ input[type="time"] {
 .dark .hover-bg-blue:hover {
   background-color: #1e3a8a1a; 
 }
+
+.hover-bg-red:hover {
+  background-color: #fef2f2 ;
+}
+
+.dark .hover-bg-red:hover {
+  background-color: #7f1d1d33; 
+}
+
+.bg-blue-custom {
+  background-color: #dbeafe;
+}
+
+.dark .bg-blue-custom {
+  background-color: #1e3a8a4D;
+}
+
+.bg-yellow-custom {
+  background-color: #fef9c3;
+}
+
+.dark .bg-yellow-custom {
+  background-color: #713f121A;
+}
+
+.bg-gray-neutral {
+  background-color: #e5e7eb;
+}
+
+.dark .bg-gray-neutral {
+  background-color: #4b5563;
+}
+
+.bg-gray-subtle {
+  background-color: #f3f4f6;
+}
+
+.dark .bg-gray-subtle {
+  background-color: #374151;
+}
+
+.hover-badge-green:hover {
+  background-color: #d1fae5;
+}
+
+.dark .hover-badge-green:hover {
+  background-color: #1d7f3a33;
+}

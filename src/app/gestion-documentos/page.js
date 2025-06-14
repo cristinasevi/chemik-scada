@@ -1642,8 +1642,8 @@ const GestionDocumentosPage = () => {
         return (
             <div key={folder.id}>
                 <div
-                    className={`folder-item group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors relative ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''
-                        } ${dragOverFolder === folder.id ? 'bg-green-100 border-2 border-green-400' : ''}`}
+                    className={`folder-item group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover-bg transition-colors relative ${isSelected ? 'bg-blue-custom border-l-4 border-blue-500' : ''
+                        } ${dragOverFolder === folder.id ? 'bg-yellow-custom border-2 border-yellow-400' : ''}`}
                     style={{ paddingLeft: `${level * 12 + 6}px` }}
                     onClick={!isEditing ? () => selectFolder(folder.id) : undefined}
                     draggable={isAdmin() && !isEditing}
@@ -1659,12 +1659,12 @@ const GestionDocumentosPage = () => {
                                 e.stopPropagation();
                                 if (!isEditing) toggleFolder(folder.id);
                             }}
-                            className="p-1 hover:bg-gray-200 rounded transition-colors"
+                            className="p-1 hover-bg rounded transition-colors"
                             disabled={isEditing}
                         >
                             {isExpanded ?
-                                <ChevronDown size={14} className="text-gray-600" /> :
-                                <ChevronRight size={14} className="text-gray-600" />
+                                <ChevronDown size={14} className="text-secondary" /> :
+                                <ChevronRight size={14} className="text-secondary" />
                             }
                         </button>
                     ) : (
@@ -1719,7 +1719,7 @@ const GestionDocumentosPage = () => {
                         </div>
                     ) : (
                         <>
-                            <span className={`text-sm truncate flex-1 ${isSelected ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>
+                            <span className={`text-sm truncate flex-1 ${isSelected ? 'text-blue-700 font-medium' : 'text-secondary'}`}>
                                 {folder.name}
                             </span>
 
@@ -1730,19 +1730,19 @@ const GestionDocumentosPage = () => {
                                             e.stopPropagation();
                                             setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id);
                                         }}
-                                        className="p-1 hover:bg-gray-200 rounded transition-colors cursor-pointer"
+                                        className="p-1 hover-bg rounded transition-colors cursor-pointer"
                                     >
-                                        <MoreVertical size={14} className="text-gray-500" />
+                                        <MoreVertical size={14} className="text-secondary" />
                                     </button>
 
                                     {showFolderMenu === folder.id && (
-                                        <div className="absolute right-2 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[120px]">
+                                        <div className="absolute right-2 top-8 bg-panel border border-custom rounded-md shadow-lg z-50 py-1 min-w-[120px]">
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     startEditingFolder(folder);
                                                 }}
-                                                className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                                                className="w-full px-3 py-2 text-left text-sm text-primary hover-bg flex items-center gap-2 cursor-pointer"
                                             >
                                                 <Pencil size={14} />
                                                 Renombrar
@@ -1752,7 +1752,7 @@ const GestionDocumentosPage = () => {
                                                     e.stopPropagation();
                                                     confirmDeleteFolder(folder);
                                                 }}
-                                                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                                                className="w-full px-3 py-2 text-left text-sm text-red-600 hover-bg-red flex items-center gap-2 cursor-pointer"
                                             >
                                                 <Trash2 size={14} />
                                                 Eliminar
@@ -1778,12 +1778,12 @@ const GestionDocumentosPage = () => {
     };
 
     return (
-        <div className={`flex-1 flex flex-col bg-gray-50 overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+        <div className={`h-screen flex flex-col bg-background ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
             {/* Contenido principal */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
                 <div
-                    className={`bg-white overflow-y-auto relative ${dragOverFolder === 'root' ? 'bg-green-50' : ''}`}
+                    className={`bg-header-table overflow-y-auto relative ${dragOverFolder === 'root' ? 'bg-green-50' : ''}`}
                     style={{ width: `${sidebarWidth}px` }}
                     onClick={handleBackgroundClick}
                     onDragOver={(e) => {
@@ -1805,7 +1805,7 @@ const GestionDocumentosPage = () => {
                     <div className="p-3">
                         <div className="flex items-center justify-between mb-4">
                             <div
-                                className={`text-sm font-semibold text-gray-700 flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-green-100 border-2 border-green-400' : ''
+                                className={`text-sm font-semibold text-primary flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-green-100 border-2 border-green-400' : ''
                                     }`}
                                 onDragOver={(e) => handleDragOver(e, 'root')}
                                 onDragLeave={handleDragLeave}
@@ -1841,7 +1841,7 @@ const GestionDocumentosPage = () => {
                             {/* Input inline para crear nueva carpeta */}
                             {creatingNewFolder && (
                                 <div
-                                    className="flex items-center gap-2 py-2 px-2 rounded bg-blue-50 border border-blue-200"
+                                    className="flex items-center gap-2 py-2 px-2 rounded bg-blue-custom"
                                     style={{ paddingLeft: '8px' }}
                                 >
                                     <div className="w-6" />
@@ -1866,7 +1866,7 @@ const GestionDocumentosPage = () => {
                                         <button
                                             onClick={handleSaveNewFolder}
                                             disabled={isUploading || !newFolderName.trim()}
-                                            className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                            className="p-1 text-green-600 hover-badge-green rounded transition-colors cursor-pointer disabled:opacity-50"
                                         >
                                             {isUploading ? (
                                                 <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
@@ -1877,7 +1877,7 @@ const GestionDocumentosPage = () => {
                                         <button
                                             onClick={handleCancelNewFolder}
                                             disabled={isUploading}
-                                            className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                            className="p-1 text-red-600 hover-badge-red rounded transition-colors cursor-pointer disabled:opacity-50"
                                         >
                                             <X size={14} />
                                         </button>
@@ -1888,7 +1888,7 @@ const GestionDocumentosPage = () => {
                     </div>
                     {/* Barra de redimensionamiento */}
                     <div
-                        className="absolute top-0 right-0 w-1 h-full bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors"
+                        className="absolute top-0 right-0 w-1 h-full bg-gray-neutral hover:bg-blue-500 cursor-col-resize transition-colors"
                         onMouseDown={handleMouseDown}
                         style={{ cursor: isResizing ? 'col-resize' : 'col-resize' }}
                     />
@@ -1897,13 +1897,13 @@ const GestionDocumentosPage = () => {
                 {/* Panel derecho - Lista de archivos */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                     {/* Breadcrumb y controles */}
-                    <div className="p-4 border-b border-gray-200 bg-gray-50">
+                    <div className="p-4 border-b bg-header-table">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className="text-sm text-gray-600 font-medium">
+                                <div className="text-sm text-primary font-medium">
                                     {breadcrumb}
                                 </div>
-                                <div className="text-xs text-gray-400">
+                                <div className="text-xs text-secondary">
                                     ({sortedDocuments.length} archivo{sortedDocuments.length !== 1 ? 's' : ''})
                                 </div>
                             </div>
@@ -1916,7 +1916,7 @@ const GestionDocumentosPage = () => {
                                         placeholder="Buscar documentos..."
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="pl-9 pr-4 py-2 w-48 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        className="pl-9 pr-4 py-2 w-48 border border-custom rounded-lg bg-panel text-primary text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     />
                                 </div>
                                 <button
@@ -1928,11 +1928,11 @@ const GestionDocumentosPage = () => {
                                     <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                                 </button>
                                 <div className="flex items-center gap-2">
-                                    <label className="text-sm text-gray-600">Ordenar por:</label>
+                                    <label className="text-sm text-secondary">Ordenar por:</label>
                                     <select
                                         value={sortBy}
                                         onChange={(e) => setSortBy(e.target.value)}
-                                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        className="text-sm border border-custom bg-panel text-primary rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     >
                                         <option value="name">Nombre</option>
                                         <option value="date">Fecha</option>
@@ -1940,7 +1940,7 @@ const GestionDocumentosPage = () => {
                                     </select>
                                     <button
                                         onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                                        className="p-1 text-gray-600 hover:text-gray-800 transition-colors cursor-pointer"
+                                        className="p-1 text-secondary hover:text-primary transition-colors cursor-pointer"
                                         title={`Orden ${sortOrder === 'asc' ? 'ascendente' : 'descendente'}`}
                                     >
                                         {sortOrder === 'asc' ? <SortAsc size={16} /> : <SortDesc size={16} />}
@@ -1953,7 +1953,7 @@ const GestionDocumentosPage = () => {
                     {/* Lista de archivos */}
                     <div className="flex-1 overflow-y-auto">
                         <table className="w-full">
-                            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                            <thead className="bg-header-table border-b border-custom sticky top-0">
                                 <tr>
                                     {/* Solo mostrar checkbox si es admin */}
                                     {isAdmin() && (
@@ -1966,17 +1966,17 @@ const GestionDocumentosPage = () => {
                                             />
                                         </th>
                                     )}
-                                    <th className="text-left p-3 font-medium text-gray-700 text-sm">Nombre</th>
-                                    <th className="text-left p-3 font-medium text-gray-700 text-sm">Tamaño</th>
-                                    <th className="text-center p-3 font-medium text-gray-700 text-sm">Fecha de modificación</th>
-                                    <th className="text-center p-3 font-medium text-gray-700 text-sm">Acciones</th>
+                                    <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
+                                    <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
+                                    <th className="text-center p-3 font-medium text-primary text-sm">Fecha de modificación</th>
+                                    <th className="text-center p-3 font-medium text-primary text-sm">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {sortedDocuments.map(document => (
                                     <tr
                                         key={document.id}
-                                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                        className="border-b border-custom hover-bg transition-colors"
                                         draggable={isAdmin()}
                                         onDragStart={(e) => handleDragStart(e, document, 'document')}
                                         onDragEnd={handleDragEnd}
@@ -1997,17 +1997,17 @@ const GestionDocumentosPage = () => {
                                                 <FileText className="text-blue-500 flex-shrink-0" size={20} />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-gray-900 truncate">
+                                                        <span className="font-medium text-primary truncate">
                                                             {document.original_name || document.name}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="p-3 text-gray-600 text-sm">
+                                        <td className="p-3 text-secondary text-sm">
                                             {formatFileSize(document.size)}
                                         </td>
-                                        <td className="p-3 text-gray-600 text-sm">
+                                        <td className="p-3 text-secondary text-sm">
                                             <div className="flex items-center justify-center gap-1">
                                                 <Calendar size={12} />
                                                 {formatDate(document.created_at)}
@@ -2027,7 +2027,7 @@ const GestionDocumentosPage = () => {
                                                 {isAdmin() && (
                                                     <button
                                                         onClick={() => confirmDeleteDocument(document)}
-                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                                                        className="p-2 text-red-600 hover-bg-red rounded-md transition-colors cursor-pointer"
                                                         title="Eliminar"
                                                     >
                                                         <Trash2 size={14} />
@@ -2044,8 +2044,8 @@ const GestionDocumentosPage = () => {
                             <div className="flex items-center justify-center h-64">
                                 <div className="text-center">
                                     <FileText size={48} className="mx-auto text-gray-400 mb-4" />
-                                    <h3 className="text-lg font-medium text-gray-900 mb-2">Sin documentos</h3>
-                                    <p className="text-gray-500 mb-4">
+                                    <h3 className="text-lg font-medium text-primary  mb-2">Sin documentos</h3>
+                                    <p className="text-secondary mb-4">
                                         {searchTerm ? 'No se encontraron documentos que coincidan con la búsqueda' : 'Esta carpeta está vacía'}
                                     </p>
                                 </div>
@@ -2131,23 +2131,23 @@ const GestionDocumentosPage = () => {
             {/* Modal de confirmación */}
             {showConfirmModal && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+                    <div className="bg-panel rounded-lg w-full max-w-md shadow-xl">
                         <div className="p-6">
                             <div className="flex items-center gap-4 mb-4">
-                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                                <div className="w-12 h-12 badge-red rounded-full flex items-center justify-center">
                                     <AlertTriangle className="text-red-600" size={24} />
                                 </div>
-                                <h3 className="text-lg font-semibold text-gray-900">Confirmar eliminación</h3>
+                                <h3 className="text-lg font-semibold text-primary">Confirmar eliminación</h3>
                             </div>
 
-                            <p className="text-gray-600 mb-6 leading-relaxed break-words">
+                            <p className="text-secondary mb-6 leading-relaxed break-words">
                                 {confirmAction?.message}
                             </p>
 
                             <div className="flex justify-end gap-3">
                                 <button
                                     onClick={handleCancelConfirm}
-                                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
+                                    className="px-4 py-2 text-primary bg-gray-subtle rounded-md transition-colors cursor-pointer"
                                 >
                                     Cancelar
                                 </button>
