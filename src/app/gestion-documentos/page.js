@@ -46,6 +46,16 @@ const GestionDocumentosPage = () => {
         return profile?.rol === 'admin' || profile?.rol === 'empleado';
     };
 
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+
+        return () => {
+            document.body.style.overflow = 'auto';
+            document.documentElement.style.overflow = 'auto';
+        };
+    }, []);
+
     const showNotification = (message, type = 'success') => {
         const id = Date.now();
         const notification = { id, message, type };
@@ -1783,107 +1793,120 @@ const GestionDocumentosPage = () => {
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
                 <div
-                    className={`bg-header-table overflow-y-auto relative ${dragOverFolder === 'root' ? 'bg-green-50' : ''}`}
-                    style={{ width: `${sidebarWidth}px` }}
-                    onClick={handleBackgroundClick}
-                    onDragOver={(e) => {
-                        if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
-                            handleDragOver(e, 'root');
-                        }
-                    }}
-                    onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget)) {
-                            setDragOverFolder(null);
-                        }
-                    }}
-                    onDrop={(e) => {
-                        if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
-                            handleDrop(e, 'root');
-                        }
+                    className={`bg-header-table relative ${dragOverFolder === 'root' ? 'bg-yellow-custom' : ''}`}
+                    style={{
+                        width: `${sidebarWidth}px`,
+                        height: '100vh',
+                        display: 'flex',
+                        flexDirection: 'column'
                     }}
                 >
-                    <div className="p-3">
-                        <div className="flex items-center justify-between mb-4">
-                            <div
-                                className={`text-sm font-semibold text-primary flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-green-100 border-2 border-green-400' : ''
-                                    }`}
-                                onDragOver={(e) => handleDragOver(e, 'root')}
-                                onDragLeave={handleDragLeave}
-                                onDrop={(e) => handleDrop(e, 'root')}
-                            >
-                                <Folder size={16} className="text-yellow-600" />
-                                {(() => {
-                                    const singlePlant = getSinglePlant();
-                                    if (singlePlant) {
-                                        return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
-                                    }
-                                    return folders.find(f => f.id === 'root')?.name || 'PLANTAS';
-                                })()}
-                            </div>
-                            {isAdmin() && (
-                                <button
-                                    onClick={startCreatingFolder}
-                                    disabled={creatingNewFolder}
-                                    className="p-1.5 text-gray-500 hover:text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer disabled:opacity-50"
-                                    title="Crear nueva carpeta"
-                                >
-                                    <Plus size={16} />
-                                </button>
-                            )}
-                        </div>
-                        <div className="space-y-1">
-                            {folderHierarchy.map(folder => (
-                                <div key={folder.id} className="group">
-                                    {renderFolder(folder)}
-                                </div>
-                            ))}
-
-                            {/* Input inline para crear nueva carpeta */}
-                            {creatingNewFolder && (
+                    {/* Contenedor scrolleable que ocupa todo el espacio disponible */}
+                    <div
+                        className="flex-1 overflow-y-auto scrollbar-thin"
+                        style={{
+                            paddingBottom: '80px'
+                        }}
+                        onClick={handleBackgroundClick}
+                        onDragOver={(e) => {
+                            if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
+                                handleDragOver(e, 'root');
+                            }
+                        }}
+                        onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget)) {
+                                setDragOverFolder(null);
+                            }
+                        }}
+                        onDrop={(e) => {
+                            if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
+                                handleDrop(e, 'root');
+                            }
+                        }}
+                    >
+                        <div className="p-3">
+                            <div className="flex items-center justify-between mb-4">
                                 <div
-                                    className="flex items-center gap-2 py-2 px-2 rounded bg-blue-custom"
-                                    style={{ paddingLeft: '8px' }}
+                                    className={`text-sm font-semibold text-primary flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-yellow-custom border-2 border-yellow-400' : ''
+                                        }`}
+                                    onDragOver={(e) => handleDragOver(e, 'root')}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, 'root')}
                                 >
-                                    <div className="w-6" />
-                                    <Folder size={16} className="text-blue-600" />
-                                    <div className="flex items-center gap-2 flex-1">
-                                        <input
-                                            type="text"
-                                            value={newFolderName}
-                                            onChange={(e) => setNewFolderName(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    handleSaveNewFolder();
-                                                } else if (e.key === 'Escape') {
-                                                    handleCancelNewFolder();
-                                                }
-                                            }}
-                                            placeholder="Nombre de la carpeta"
-                                            className="flex-1 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            autoFocus
-                                            disabled={isUploading}
-                                        />
-                                        <button
-                                            onClick={handleSaveNewFolder}
-                                            disabled={isUploading || !newFolderName.trim()}
-                                            className="p-1 text-green-600 hover-badge-green rounded transition-colors cursor-pointer disabled:opacity-50"
-                                        >
-                                            {isUploading ? (
-                                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                                            ) : (
-                                                <Check size={14} />
-                                            )}
-                                        </button>
-                                        <button
-                                            onClick={handleCancelNewFolder}
-                                            disabled={isUploading}
-                                            className="p-1 text-red-600 hover-badge-red rounded transition-colors cursor-pointer disabled:opacity-50"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    </div>
+                                    <Folder size={16} className="text-yellow-600" />
+                                    {(() => {
+                                        const singlePlant = getSinglePlant();
+                                        if (singlePlant) {
+                                            return singlePlant === 'LAMAJA' ? 'LA MAJA' : 'RETAMAR';
+                                        }
+                                        return folders.find(f => f.id === 'root')?.name || 'PLANTAS';
+                                    })()}
                                 </div>
-                            )}
+                                {isAdmin() && (
+                                    <button
+                                        onClick={startCreatingFolder}
+                                        disabled={creatingNewFolder}
+                                        className="p-1.5 text-gray-500 hover:text-blue-600 hover-bg-blue rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                                        title="Crear nueva carpeta"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-1">
+                                {folderHierarchy.map(folder => (
+                                    <div key={folder.id} className="group">
+                                        {renderFolder(folder)}
+                                    </div>
+                                ))}
+
+                                {/* Input inline para crear nueva carpeta */}
+                                {creatingNewFolder && (
+                                    <div
+                                        className="flex items-center gap-2 py-2 px-2 rounded bg-blue-custom"
+                                        style={{ paddingLeft: '8px' }}
+                                    >
+                                        <div className="w-6" />
+                                        <Folder size={16} className="text-blue-600" />
+                                        <div className="flex items-center gap-2 flex-1">
+                                            <input
+                                                type="text"
+                                                value={newFolderName}
+                                                onChange={(e) => setNewFolderName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        handleSaveNewFolder();
+                                                    } else if (e.key === 'Escape') {
+                                                        handleCancelNewFolder();
+                                                    }
+                                                }}
+                                                placeholder="Nombre de la carpeta"
+                                                className="flex-1 text-sm px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                autoFocus
+                                                disabled={isUploading}
+                                            />
+                                            <button
+                                                onClick={handleSaveNewFolder}
+                                                disabled={isUploading || !newFolderName.trim()}
+                                                className="p-1 text-green-600 hover-badge-green rounded transition-colors cursor-pointer disabled:opacity-50"
+                                            >
+                                                {isUploading ? (
+                                                    <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                                                ) : (
+                                                    <Check size={14} />
+                                                )}
+                                            </button>
+                                            <button
+                                                onClick={handleCancelNewFolder}
+                                                disabled={isUploading}
+                                                className="p-1 text-red-600 hover-badge-red rounded transition-colors cursor-pointer disabled:opacity-50"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                     {/* Barra de redimensionamiento */}
@@ -1955,17 +1978,14 @@ const GestionDocumentosPage = () => {
                         <table className="w-full">
                             <thead className="bg-header-table border-b border-custom sticky top-0">
                                 <tr>
-                                    {/* Solo mostrar checkbox si es admin */}
-                                    {isAdmin() && (
-                                        <th className="text-left p-3 font-medium text-gray-700 text-sm w-12">
-                                            <input
-                                                type="checkbox"
-                                                checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
-                                                onChange={(e) => handleSelectAll(e.target.checked)}
-                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                            />
-                                        </th>
-                                    )}
+                                    <th className="text-left p-3 font-medium text-gray-700 text-sm w-12">
+                                        <input
+                                            type="checkbox"
+                                            checked={sortedDocuments.length > 0 && selectedDocuments.size === sortedDocuments.length}
+                                            onChange={(e) => handleSelectAll(e.target.checked)}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                    </th>
                                     <th className="text-left p-3 font-medium text-primary text-sm">Nombre</th>
                                     <th className="text-left p-3 font-medium text-primary text-sm">Tamaño</th>
                                     <th className="text-center p-3 font-medium text-primary text-sm">Fecha de modificación</th>
@@ -1981,17 +2001,14 @@ const GestionDocumentosPage = () => {
                                         onDragStart={(e) => handleDragStart(e, document, 'document')}
                                         onDragEnd={handleDragEnd}
                                     >
-                                        {/* Solo mostrar checkbox si es admin */}
-                                        {isAdmin() && (
-                                            <td className="p-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedDocuments.has(document.id)}
-                                                    onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
-                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                                />
-                                            </td>
-                                        )}
+                                        <td className="p-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDocuments.has(document.id)}
+                                                onChange={(e) => handleDocumentSelection(document.id, e.target.checked)}
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                        </td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-3">
                                                 <FileText className="text-blue-500 flex-shrink-0" size={20} />
@@ -2057,8 +2074,8 @@ const GestionDocumentosPage = () => {
 
             {/* Botones flotantes */}
             <div className="fixed bottom-6 right-6 flex gap-3 z-40">
-                {/* Botón de descargar - Solo si es admin Y hay archivos seleccionados */}
-                {isAdmin() && selectedDocuments.size > 0 && (
+                {/* Botón de descargar - Solo si hay archivos seleccionados */}
+                {selectedDocuments.size > 0 && (
                     <button
                         onClick={downloadSelectedDocuments}
                         className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-200 hover:scale-105 cursor-pointer"
