@@ -39,6 +39,8 @@ const GestionDocumentosPage = () => {
     const [dragOverFolder, setDragOverFolder] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [queryCache, setQueryCache] = useState(new Map());
+    const [sidebarWidth, setSidebarWidth] = useState(320);
+    const [isResizing, setIsResizing] = useState(false);
 
     const isAdmin = () => {
         return profile?.rol === 'admin' || profile?.rol === 'empleado';
@@ -108,6 +110,35 @@ const GestionDocumentosPage = () => {
         setDragOverFolder(null);
         setIsDragging(false);
     };
+
+    const handleMouseDown = (e) => {
+        setIsResizing(true);
+        e.preventDefault();
+    };
+
+    const handleMouseMove = useCallback((e) => {
+        if (!isResizing) return;
+
+        const newWidth = e.clientX;
+        if (newWidth >= 250 && newWidth <= 600) {
+            setSidebarWidth(newWidth);
+        }
+    }, [isResizing]);
+
+    const handleMouseUp = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    useEffect(() => {
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            return () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+            };
+        }
+    }, [isResizing, handleMouseMove, handleMouseUp]);
 
     const createDragImage = (item, type) => {
         const dragElement = document.createElement('div');
@@ -1613,7 +1644,7 @@ const GestionDocumentosPage = () => {
                 <div
                     className={`folder-item group flex items-center gap-2 py-2 px-2 rounded cursor-pointer hover:bg-gray-100 transition-colors relative ${isSelected ? 'bg-blue-100 border-l-4 border-blue-500' : ''
                         } ${dragOverFolder === folder.id ? 'bg-green-100 border-2 border-green-400' : ''}`}
-                    style={{ paddingLeft: `${level * 16 + 8}px` }}
+                    style={{ paddingLeft: `${level * 12 + 6}px` }}
                     onClick={!isEditing ? () => selectFolder(folder.id) : undefined}
                     draggable={isAdmin() && !isEditing}
                     onDragStart={(e) => handleDragStart(e, folder, 'folder')}
@@ -1747,39 +1778,13 @@ const GestionDocumentosPage = () => {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-gray-50">
-            {/* Toolbar superior */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white shadow-sm">
-                <div className="flex items-center gap-4">
-                    <div className="relative">
-                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Buscar documentos..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-9 pr-4 py-2 w-64 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={handleManualRefresh}
-                        disabled={loading}
-                        className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover-bg-blue rounded-md transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                    </button>
-                </div>
-            </div>
-
+        <div className={`flex-1 flex flex-col bg-gray-50 overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
             {/* Contenido principal */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Panel izquierdo - Árbol de carpetas */}
                 <div
-                    className={`w-80 border-r border-gray-200 bg-white overflow-y-auto ${dragOverFolder === 'root' ? 'bg-green-50' : ''
-                        }`}
+                    className={`bg-white overflow-y-auto relative ${dragOverFolder === 'root' ? 'bg-green-50' : ''}`}
+                    style={{ width: `${sidebarWidth}px` }}
                     onClick={handleBackgroundClick}
                     onDragOver={(e) => {
                         if (e.target === e.currentTarget || e.target.closest('.folder-item') === null) {
@@ -1797,7 +1802,7 @@ const GestionDocumentosPage = () => {
                         }
                     }}
                 >
-                    <div className="p-4">
+                    <div className="p-3">
                         <div className="flex items-center justify-between mb-4">
                             <div
                                 className={`text-sm font-semibold text-gray-700 flex items-center gap-2 p-2 rounded transition-colors ${dragOverFolder === 'root' ? 'bg-green-100 border-2 border-green-400' : ''
@@ -1881,6 +1886,12 @@ const GestionDocumentosPage = () => {
                             )}
                         </div>
                     </div>
+                    {/* Barra de redimensionamiento */}
+                    <div
+                        className="absolute top-0 right-0 w-1 h-full bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors"
+                        onMouseDown={handleMouseDown}
+                        style={{ cursor: isResizing ? 'col-resize' : 'col-resize' }}
+                    />
                 </div>
 
                 {/* Panel derecho - Lista de archivos */}
@@ -1898,6 +1909,24 @@ const GestionDocumentosPage = () => {
                             </div>
 
                             <div className="flex items-center gap-4">
+                                <div className="relative">
+                                    <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar documentos..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="pl-9 pr-4 py-2 w-48 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleManualRefresh}
+                                    disabled={loading}
+                                    className="p-2 text-blue-600 hover:text-blue-700 hover-bg-blue rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+                                    title="Actualizar"
+                                >
+                                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                                </button>
                                 <div className="flex items-center gap-2">
                                     <label className="text-sm text-gray-600">Ordenar por:</label>
                                     <select

@@ -41,11 +41,13 @@ export default function RootLayout({ children }) {
           }}
         />
       </head>
-      <body className="font-inter antialiased">
+      <body className="font-inter antialiased h-screen flex flex-col">
         <AuthProvider>
           <ProtectedLayout>
             <Header />
-            {children}
+            <div className="flex-1 flex flex-col">
+              {children}
+            </div>
           </ProtectedLayout>
         </AuthProvider>
       </body>
